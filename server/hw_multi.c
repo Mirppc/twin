@@ -11,13 +11,16 @@
  *
  */
 
+
+#include "twautoconf.h"
+
 #include <stdio.h>
-#include <sys/stat.h>
 
-#include "autoconf.h"
-
-#ifdef HAVE_SYS_IOCTL_H
+#ifdef TW_HAVE_SYS_IOCTL_H
 # include <sys/ioctl.h>
+#endif
+#ifdef TW_HAVE_SYS_STAT_H
+# include <sys/stat.h>
 #endif
 
 #include "twin.h"
@@ -28,42 +31,16 @@
 #include "remote.h"
 #include "extreg.h"
 
-#include "resize.h"
+#include "dl.h"
 #include "hw.h"
 #include "hw_private.h"
 #include "hw_multi.h"
 #include "printk.h"
+#include "resize.h"
 #include "util.h"
 
-#ifdef CONF__MODULES
-# include "dl.h"
-#endif
 
 #include <Tw/Tw.h>
-
-
-/* HW specific headers */
-
-#ifdef CONF_HW_GFX
-# include "HW/hw_gfx.h"
-#endif
-
-#ifdef CONF_HW_X11
-# include "HW/hw_X11.h"
-#endif
-
-#if !defined(CONF__MODULES) && !defined(CONF_SOCKET)
-
-# undef CONF_HW_DISPLAY
-# undef CONF_HW_TWIN
-
-#endif
-
-
-
-
-
-
 
 
 #define forHW for (HW = All->FirstDisplayHW; HW; HW = HW->Next)
@@ -78,7 +55,7 @@ static dat (*saveChangedVideo)[2][2];
 static dat savedDisplayWidth = 100, savedDisplayHeight = 30;
 static dat TryDisplayWidth, TryDisplayHeight;
 
-static dat AccelVideo[4] = { MAXDAT, MAXDAT, MINDAT, MINDAT };
+static dat AccelVideo[4] = { TW_MAXDAT, TW_MAXDAT, TW_MINDAT, TW_MINDAT };
 byte   StrategyFlag;
 tany   StrategyDelay = (tany)0;
 
@@ -89,12 +66,12 @@ static byte ConfigureHWDefault[HW_CONFIGURE_MAX];
 
 /* common functions */
 
-udat GetDisplayWidth(void) {
+dat GetDisplayWidth(void) {
     return All->FirstDisplayHW && !All->FirstDisplayHW->Quitted
 	? DisplayWidth : savedDisplayWidth;
 }
 
-udat GetDisplayHeight(void) {
+dat GetDisplayHeight(void) {
     return All->FirstDisplayHW && !All->FirstDisplayHW->Quitted
 	? DisplayHeight : savedDisplayHeight;
 }
@@ -151,32 +128,13 @@ void RunNoHW(byte print_info) {
     }
     
     /* try to fire up the Socket Server ... */
-#if defined (CONF__MODULES) && !defined(CONF_SOCKET)
     (void)DlLoad(SocketSo);
-#endif
 }
 
 
-static void warn_NoHW(uldat len, char *arg, uldat tried) {
-#ifdef CONF__MODULES
-    if (!tried && !arg)
-	printk("twin: no display driver compiled into twin.\n"
-	       "      please run as `twin --hw=<display>'\n");
-    else
-#endif
-    {
-	printk("twin: all display drivers failed");
-	if (arg)
-	    printk(" for `--hw=%.*s\'\n", Min2((int)len,SMALLBUFF), arg);
-	else
-	    printk(".\n");
-    }
-}
-
-#ifdef CONF__MODULES
-
-static byte module_InitHW(byte *arg, uldat len) {
-    byte *name, *tmp;
+static byte module_InitHW(TW_CONST byte *arg, uldat len) {
+    TW_CONST byte *name, *tmp;
+    byte * alloc_name;
     byte *(*InitD)(void);
     module Module;
 
@@ -194,139 +152,64 @@ static byte module_InitHW(byte *arg, uldat len) {
     if (name)
 	len = name - arg;
     
-    if ((name = AllocMem(len + 7))) {
-	sprintf(name, "HW/hw_%.*s", (int)len, arg);
+    if (len == 1 && *arg == 'X') {
+        len = 3;
+        arg = "X11";
+    }
+    
+    if ((alloc_name = AllocMem(len + 4))) {
+	sprintf(alloc_name, "hw_%.*s", (int)len, arg);
 
-	Module = DlLoadAny(len + 6, name);
+	Module = DlLoadAny(len + 3, alloc_name);
 	
 	if (Module) {
-	    printk("twin: starting display driver module `%."STR(SMALLBUFF)"s'...\n", name);
+	    printk("twin: starting display driver module `%."STR(TW_SMALLBUFF)"s'...\n", alloc_name);
 	    if ((InitD = Module->Private) && InitD()) {
-		printk("twin: ...module `%."STR(SMALLBUFF)"s' successfully started.\n", name);
-		FreeMem(name);
+		printk("twin: ...module `%."STR(TW_SMALLBUFF)"s' successfully started.\n", alloc_name);
+		FreeMem(alloc_name);
 		HW->Module = Module; Module->Used++;
 		return TRUE;
 	    }
 	    Delete(Module);
 	}
-    } else
-	Error(NOMEMORY);
+    }
     
+    if (alloc_name)
+        name = alloc_name;
+    else if (!name)
+        name = (byte *)"(NULL)";
+
     if (Module) {
-	printk("twin: ...module `%."STR(SMALLBUFF)"s' failed to start.\n", name ? name : (byte *)"(NULL)");
+	printk("twin: ...module `%."STR(TW_SMALLBUFF)"s' failed to start.\n", name);
     } else
-	printk("twin: unable to load display driver module `%."STR(SMALLBUFF)"s' :\n"
-	       "      %."STR(SMALLBUFF)"s\n", name ? name : (byte *)"(NULL)", ErrStr);
-    if (name)
-	FreeMem(name);
+	printk("twin: unable to load display driver module `%."STR(TW_SMALLBUFF)"s' :\n"
+	       "      %."STR(TW_SMALLBUFF)"s\n", name, ErrStr);
+    if (alloc_name)
+	FreeMem(alloc_name);
     
     return FALSE;
 }
 
-#endif /* CONF__MODULES */
-
-
-#ifdef CONF__MODULES
-# define DEF_INITHW(hw) \
-static byte CAT(hw,_InitHW)(void) { \
-    byte *arg; \
-    uldat len; \
-    if (HW->Name && HW->NameLen) { \
-	arg = HW->Name; \
-	len = HW->NameLen; \
-    } else { \
-	arg = "-hw=" STR(hw); \
-	len = strlen(arg); \
-    } \
-    return module_InitHW(arg, len); \
-}
-#else
-# define DEF_INITHW(hw)
-#endif
-
-
-/* HW specific functions */
-
-#ifdef CONF_HW_GFX
-# include "HW/hw_gfx.h"
-#else
-  DEF_INITHW(gfx)
-#endif
-
-#ifdef CONF_HW_X11
-# include "HW/hw_X11.h"
-# define X_InitHW X11_InitHW
-#else
-  DEF_INITHW(X)
-#endif
-	
-#ifdef CONF_HW_TWIN
-# include "HW/hw_twin.h"
-# define twin_InitHW TW_InitHW
-#else
-  DEF_INITHW(twin)
-#endif
-
-#ifdef CONF_HW_DISPLAY
-# include "HW/hw_display.h"
-#else
-  DEF_INITHW(display)
-#endif
-
-#ifdef CONF_HW_TTY
-# include "HW/hw_tty.h"
-#else
-  DEF_INITHW(tty)
-#endif
-
-#ifdef CONF_HW_GGI
-# include "HW/hw_ggi.h"
-# define ggi_InitHW GGI_InitHW
-#else
-  DEF_INITHW(ggi)
-#endif
-
-#undef DEF_INITHW
-
-
-#if defined(CONF__MODULES) || defined(CONF_HW_DISPLAY)
-static byte check4(byte *s, byte *arg) {
-    if (arg && !strncmp(s, arg, strlen(s))) {
-	printk("twin: trying given `--hw=%."STR(SMALLBUFF)"s' display driver.\n", s);
-	return TRUE;
+static byte set_hw_name(display_hw D_HW, TW_CONST byte * name, uldat namelen) {
+    byte * alloc_name;
+    
+    if (D_HW && (alloc_name = CloneStrL(name, namelen)) != NULL) {
+        if (D_HW->Name)
+            FreeMem(D_HW->Name);
+        D_HW->Name = alloc_name;
+        D_HW->NameLen = namelen;
     }
-    return FALSE;
-}
-#endif /* defined(CONF__MODULES) || defined(CONF_HW_DISPLAY) */
-
-static byte autocheck4(byte *s, byte *arg) {
-    if (arg && !strncmp(s, arg, strlen(s))) {
-	printk("twin: trying given `--hw=%."STR(SMALLBUFF)"s' display driver.\n", s);
-	return TRUE;
-    }
-    if (arg) {
-	/*
-	printk("twin: `-hw=%."STR(SMALLBUFF)"s' given, skipping `-hw=%."STR(SMALLBUFF)"s' display driver.\n",
-		arg, s);
-	 */
-	return FALSE;
-    }
-    printk("twin: autoprobing `--hw=%."STR(SMALLBUFF)"s' display driver.\n", s);
     return TRUE;
 }
 
-static void fix4(byte *s, display_hw D_HW) {
-    uldat len;
-    if (!D_HW->NameLen) {
-	if (D_HW->Name)
-	    FreeMem(D_HW->Name), D_HW->Name = NULL;
-	len = strlen(s) + 4;
-	if ((D_HW->Name = AllocMem(len + 1))) {
-	    sprintf(D_HW->Name, "-hw=%s", s);
-	    D_HW->NameLen = len;
-	}
-    }
+static void warn_NoHW(TW_CONST byte *arg, uldat len) {
+    printk("twin: all display drivers failed");
+    if (arg)
+        printk(" for `%.*s\'\n", Min2((int)len,TW_SMALLBUFF), arg);
+    else
+        printk(".\n");
 }
+
 
 /*
  * InitDisplayHW runs HW specific InitXXX() functions, starting from best setup
@@ -334,7 +217,7 @@ static void fix4(byte *s, display_hw D_HW) {
  */
 byte InitDisplayHW(display_hw D_HW) {
     byte *arg = D_HW->Name;
-    uldat tried = 0;
+    uldat arglen = D_HW->NameLen;
     byte success;
 
     SaveHW;
@@ -342,42 +225,24 @@ byte InitDisplayHW(display_hw D_HW) {
 
     D_HW->DisplayIsCTTY = D_HW->NeedHW = D_HW->FlagsHW = FALSE;
     
-    if (arg && !strncmp(arg, "-hw=", 4))
-	arg += 4;
-    else
-	arg = NULL;
-
-#define AUTOTRY4(hw) (autocheck4(STR(hw), arg) && (tried++, CAT(hw,_InitHW)()) && (fix4(STR(hw), D_HW), TRUE))
-#define     TRY4(hw) (    check4(STR(hw), arg) && (tried++, CAT(hw,_InitHW)()) && (fix4(STR(hw), D_HW), TRUE))
+#define AUTOTRY4(hw, len) (module_InitHW(hw, len) && set_hw_name(D_HW, hw, len))
     
-    success =
-#if defined(CONF__MODULES) || defined(CONF_HW_GFX)
-	AUTOTRY4(gfx) ||
-#endif
-#if defined(CONF__MODULES) || defined(CONF_HW_X11)
-	AUTOTRY4(X) ||
-#endif
-#if defined(CONF__MODULES) || defined(CONF_HW_TWIN)
-	AUTOTRY4(twin) ||
-#endif
-#if defined(CONF__MODULES) || defined(CONF_HW_DISPLAY)
-	TRY4(display) ||
-#endif
-#if defined(CONF__MODULES) || defined(CONF_HW_TTY)
-	AUTOTRY4(tty) ||
-#endif
-#if defined(CONF__MODULES) || defined(CONF_HW_GGI)
-	AUTOTRY4(ggi) ||
-#endif
-#ifdef CONF__MODULES
-	module_InitHW(D_HW->Name, D_HW->NameLen) ||
-#endif
-	(warn_NoHW(arg ? D_HW->NameLen - 4 : 0, arg, tried), FALSE);
+    if (arglen == 0) {
+        success =
+            AUTOTRY4("-hw=gfx", 7) ||
+            AUTOTRY4("-hw=X11", 7) ||
+            AUTOTRY4("-hw=twin", 8) ||
+            AUTOTRY4("-hw=tty", 7) ||
+            AUTOTRY4("-hw=ggi", 7);
+    } else {
+        success = module_InitHW(D_HW->Name, D_HW->NameLen);
+    }
 
-#undef     TRY4
 #undef AUTOTRY4
 
     if (success) {
+        udat tried;
+        
 	D_HW->Quitted = FALSE;
 	
 	/* configure correctly the new HW */
@@ -391,6 +256,8 @@ byte InitDisplayHW(display_hw D_HW) {
 	if (All->FnHookDisplayHW)
 	    All->FnHookDisplayHW(All->HookDisplayHW);
 	UpdateFlagsHW(); /* this garbles HW... not a problem here */
+    } else {
+        warn_NoHW(arg, arglen);
     }
     
     RestoreHW;
@@ -416,40 +283,48 @@ void QuitDisplayHW(display_hw D_HW) {
 	    Ext(Remote,KillSlot)(slot);
 	}
 
-#ifdef CONF__MODULES
 	if (D_HW->Module) {
 	    D_HW->Module->Used--;
 	    Delete(D_HW->Module);
 	    D_HW->Module = (module)0;
 	}
-#endif
 	UpdateFlagsHW(); /* this garbles HW... not a problem here */
     }
     RestoreHW;
 }
 
 static byte IsValidHW(uldat len, CONST byte *arg) {
-    CONST byte *slash = memchr(arg, '/', len), *at = memchr(arg, '@', len), *comma = memchr(arg, ',', len);
-    if (slash && (!at || slash < at) && (!comma || slash < comma)) {
-	printk("twin: slash ('/') not allowed in display HW name: %.*s\n", Min2((int)len,SMALLBUFF), arg);
-	return FALSE;
+    uldat i;
+    byte b;
+    if (len >= 4 && !CmpMem(arg, "-hw=", 4))
+        arg += 4, len -=4;
+
+    for (i = 0; i < len; i++) {
+        b = arg[i];
+        if (b == '@' || b == ',')
+            /* the rest are options - validated by each display HW */
+            break;
+        if ((b < '0' || b > '9') && (b < 'A' || b > 'Z') && (b < 'a' || b > 'z') && b != '_') {
+            printk("twin: invalid non-alphanumeric character `%c' in display HW name `%.*s'\n", (int)b, Min2((int)len,TW_SMALLBUFF), arg);
+            return FALSE;
+        }
     }
     return TRUE;
 }
 
 display_hw AttachDisplayHW(uldat len, CONST byte *arg, uldat slot, byte flags) {
-    display_hw D_HW;
+    display_hw D_HW = NULL;
 
     if ((len && len <= 4) || CmpMem("-hw=", arg, Min2(len,4))) {
 	printk("twin: specified `%.*s\' is not a known option.\n"
-		"      try `twin --help' for usage summary.\n",
-	       Min2((int)len,SMALLBUFF), arg);
-	return NULL;
+               "      try `twin --help' for usage summary.\n",
+	       Min2((int)len,TW_SMALLBUFF), arg);
+	return D_HW;
     }
     
     if (All->ExclusiveHW) {
 	printk("twin: exclusive display in use, permission to display denied!\n");
-	return NULL;
+	return D_HW;
     }
     
     if (IsValidHW(len, arg) && (D_HW = Do(Create,DisplayHW)(FnDisplayHW, len, arg))) {
@@ -479,7 +354,7 @@ display_hw AttachDisplayHW(uldat len, CONST byte *arg, uldat slot, byte flags) {
 	D_HW->AttachSlot = NOSLOT;
 	D_HW->QuitHW = NoOp;
 	Delete(D_HW);
-	D_HW = (display_hw)0;
+	D_HW = NULL;
     }
     return D_HW;
 }
@@ -510,26 +385,28 @@ byte DetachDisplayHW(uldat len, CONST byte *arg, byte flags) {
 /* initialize all required HW displays. Since we are at it, also parse command line */
 byte InitHW(void) {
     byte **arglist = orig_argv;
-    byte ret = FALSE, flags = 0, nohw = FALSE;
+    byte *arg;
     udat hwcount = 0;
+    
+    byte ret = FALSE, flags = 0, nohw = FALSE;
     
     WriteMem(ConfigureHWDefault, '\1', HW_CONFIGURE_MAX); /* set everything to default (-1) */
     
-    for (arglist = orig_argv; *arglist; arglist++) {
-	if (!strcmp(*arglist, "-nohw"))
+    for (arglist = orig_argv; (arg = *arglist); arglist++) {
+        if (!strcmp(arg, "-nohw"))
 	    nohw = TRUE;
-	else if (!strcmp(*arglist, "-x") || !strcmp(*arglist, "-excl"))
+	else if (!strcmp(arg, "-x") || !strcmp(arg, "-excl"))
 	    flags |= TW_ATTACH_HW_EXCLUSIVE;
-	else if (!strcmp(*arglist, "-s") || !strcmp(*arglist, "-share"))
+	else if (!strcmp(arg, "-s") || !strcmp(arg, "-share"))
 	    flags &= ~TW_ATTACH_HW_EXCLUSIVE;
-	else if (!strcmp(*arglist, "-secure"))
+	else if (!strcmp(arg, "-secure"))
 	    flag_secure = TRUE;
-	else if (!strcmp(*arglist, "-envrc"))
+	else if (!strcmp(arg, "-envrc"))
 	    flag_envrc = TRUE;
-	else if (!strncmp(*arglist, "-hw=", 4))
+	else if (!strncmp(arg, "-hw=", 4))
 	    hwcount++;
 	else
-	    printk("twin: ignoring unknown option `%."STR(SMALLBUFF)"s'\n", *arglist);
+	    printk("twin: ignoring unknown option `%."STR(TW_SMALLBUFF)"s'\n", arg);
     }
 
     if (nohw && hwcount > 0) {
@@ -537,9 +414,9 @@ byte InitHW(void) {
 	return ret;
     }
     if (flags & TW_ATTACH_HW_EXCLUSIVE) {
-	if (hwcount == 0 || hwcount > 1) {
-	    printk("twin: `--excl' used with%s `--hw='. make up your mind.\n",
-		   hwcount == 0 ? "out" : " multiple");
+	if (nohw || hwcount > 1) {
+	    printk("twin: `--excl' used with %s. make up your mind.\n",
+		   nohw ? "`--nohw'" : "multiple `--hw'");
 	    return ret;
 	}
     }
@@ -550,16 +427,18 @@ byte InitHW(void) {
      */
     RunTwEnvRC();
 
-    for (arglist = orig_argv; *arglist; arglist++) {
-	if (!strcmp(*arglist, "-nohw")) {
-	    RunNoHW(ret = TRUE);
-	} else if (!strncmp(*arglist, "-hw=", 4)) {
-	    ret |= !!AttachDisplayHW(strlen(*arglist), *arglist, NOSLOT, flags);
-	}
+    if (nohw)
+        RunNoHW(ret = TRUE);
+    else if (hwcount) {
+        for (arglist = orig_argv; (arg = *arglist); arglist++) {
+            if (!strncmp(arg, "-hw=", 4)) {
+                ret |= !!AttachDisplayHW(strlen(arg), arg, NOSLOT, flags);
+            }
+        }
     }
     if (hwcount == 0 && !ret)
 	/* autoprobe */
-	ret |= !!AttachDisplayHW(0, "", NOSLOT, flags);
+	ret = !!AttachDisplayHW(0, "", NOSLOT, flags);
     
     if (!ret)
 	printk("\ntwin:  \033[1mALL  DISPLAY  DRIVERS  FAILED.  QUITTING.\033[0m\n");
@@ -647,7 +526,7 @@ byte ResizeDisplay(void) {
 	     * we are trying to come up with a fair display size
 	     * and have all HW agree on it.
 	     */
-	    TryDisplayWidth = TryDisplayHeight = MAXDAT;
+	    TryDisplayWidth = TryDisplayHeight = TW_MAXDAT;
 	    forHW {
 		if (!HW->Quitted) {
 		    HW->DetectSize(&Width, &Height);
@@ -667,9 +546,9 @@ byte ResizeDisplay(void) {
 	    }
 	} while (TryDisplayWidth < Width || TryDisplayHeight < Height);
 	 
-	if (!TryDisplayWidth || TryDisplayWidth == MAXDAT)
+	if (!TryDisplayWidth || TryDisplayWidth == TW_MAXDAT)
 	    TryDisplayWidth = DisplayWidth;
-	if (!TryDisplayHeight || TryDisplayHeight == MAXDAT)
+	if (!TryDisplayHeight || TryDisplayHeight == TW_MAXDAT)
 	    TryDisplayHeight = DisplayHeight;
 	
 	/* size seems reasonable, apply it to all HW displays */
@@ -686,7 +565,7 @@ byte ResizeDisplay(void) {
 	FreeMem(OldVideo);
 	OldVideo = NULL;
     } else if ((NeedOldVideo && !OldVideo) || change) {
-	if (!(OldVideo = (hwattr *)ReAllocMem(OldVideo, TryDisplayWidth*TryDisplayHeight*sizeof(hwattr)))) {
+	if (!(OldVideo = (hwattr *)ReAllocMem(OldVideo, (ldat)TryDisplayWidth*TryDisplayHeight*sizeof(hwattr)))) {
 	    printk("twin: out of memory!\n");
 	    Quit(1);
 	}
@@ -697,14 +576,14 @@ byte ResizeDisplay(void) {
 	All->DisplayWidth  = DisplayWidth  = TryDisplayWidth;
 	All->DisplayHeight = DisplayHeight = TryDisplayHeight;
 	
-	if (!(Video = (hwattr *)ReAllocMem(Video, DisplayWidth*DisplayHeight*sizeof(hwattr))) ||
-	    !(ChangedVideo = (dat (*)[2][2])ReAllocMem(ChangedVideo, DisplayHeight*sizeof(dat)*4)) ||
-	    !(saveChangedVideo = (dat (*)[2][2])ReAllocMem(saveChangedVideo, DisplayHeight*sizeof(dat)*4))) {
+	if (!(Video = (hwattr *)ReAllocMem(Video, (ldat)DisplayWidth*DisplayHeight*sizeof(hwattr))) ||
+	    !(ChangedVideo = (dat (*)[2][2])ReAllocMem(ChangedVideo, (ldat)DisplayHeight*sizeof(dat)*4)) ||
+	    !(saveChangedVideo = (dat (*)[2][2])ReAllocMem(saveChangedVideo, (ldat)DisplayHeight*sizeof(dat)*4))) {
 	    
 	    printk("twin: out of memory!\n");
 	    Quit(1);
 	}
-	WriteMem(ChangedVideo, 0xff, DisplayHeight*sizeof(dat)*4);
+	WriteMem(ChangedVideo, 0xff, (ldat)DisplayHeight*sizeof(dat)*4);
     
     }
     NeedHW &= ~NEEDResizeDisplay;
@@ -887,16 +766,16 @@ void SelectionImport(void) {
 }
 
 INLINE void DiscardBlinkVideo(void) {
-    int i;
+    ldat i;
     uldat start, len;
     hwattr *V;
     
-    for (i=0; i<DisplayHeight*2; i++) {
+    for (i=0; i<(ldat)DisplayHeight*2; i++) {
 	start = (uldat)ChangedVideo[i>>1][i&1][0];
 
-	if (start != -1) {
+	if (start != (uldat)-1) {
 	    len = (uldat)ChangedVideo[i>>1][i&1][1] + 1 - start;
-	    start += (i>>1)*DisplayWidth;
+	    start += (i>>1) * (ldat)DisplayWidth;
 
 	    for (V = &Video[start]; len; V++, len--)
 		*V &= ~HWATTR(COL(0,HIGH), (byte)0);
@@ -906,19 +785,19 @@ INLINE void DiscardBlinkVideo(void) {
 
 INLINE void OptimizeChangedVideo(void) {
     uldat _start, start, _end, end;
-    int i;
+    ldat i;
 
     ChangedVideoFlag = FALSE;
     
-    for (i=0; i<DisplayHeight*2; i++) {
+    for (i=0; i<(ldat)DisplayHeight*2; i++) {
 	start = (uldat)ChangedVideo[i>>1][!(i&1)][0];
 	    
 	if (start != (uldat)-1) {
 	    
-	    start += (i>>1) * DisplayWidth;
+	    start += (i>>1) * (ldat)DisplayWidth;
 	    _start = start;
 
-	    _end = end = (uldat)ChangedVideo[i>>1][!(i&1)][1] + (i>>1) * DisplayWidth;
+	    _end = end = (uldat)ChangedVideo[i>>1][!(i&1)][1] + (i>>1) * (ldat)DisplayWidth;
 		
 	    while (start <= end && Video[start] == OldVideo[start])
 		start++;
@@ -953,14 +832,14 @@ INLINE void OptimizeChangedVideo(void) {
 
 INLINE void SyncOldVideo(void) {
     uldat start, len;
-    int i;
+    ldat i;
 	
-    for (i=0; i<DisplayHeight*2; i++) {
+    for (i=0; i<(ldat)DisplayHeight*2; i++) {
 	start = ChangedVideo[i>>1][i&1][0];
 	
 	if (start != -1) {
 	    len = ChangedVideo[i>>1][i&1][1] + 1 - start;
-	    start += (i>>1)*DisplayWidth;
+	    start += (i>>1) * (ldat)DisplayWidth;
 	    
 	    ChangedVideo[i>>1][i&1][0] = -1;
 	    
@@ -1022,7 +901,7 @@ void FlushHW(void) {
 	if (mangled) {
 	    ValidOldVideo = saveValidOldVideo;
 	    ChangedVideoFlag = saveChangedVideoFlag;
-	    CopyMem(saveChangedVideo, ChangedVideo, DisplayHeight*sizeof(dat)*4);
+	    CopyMem(saveChangedVideo, ChangedVideo, (ldat)DisplayHeight*sizeof(dat)*4);
 	    mangled = FALSE;
 	}
 	if (HW->RedrawVideo || ((HW->FlagsHW & FlHWSoftMouse) &&
@@ -1030,7 +909,7 @@ void FlushHW(void) {
 	    if (!saved) {
 		saveValidOldVideo = ValidOldVideo;
 		saveChangedVideoFlag = ChangedVideoFlag;
-		CopyMem(ChangedVideo, saveChangedVideo, DisplayHeight*sizeof(dat)*4);
+		CopyMem(ChangedVideo, saveChangedVideo, (ldat)DisplayHeight*sizeof(dat)*4);
 		saved = TRUE;
 	    }
 	    if (HW->RedrawVideo) {
@@ -1095,7 +974,7 @@ void FillVideo(dat Xstart, dat Ystart, dat Xend, dat Yend, hwattr Attrib) {
     yc = Yend - Ystart + 1;
     _xc = Xend - Xstart + 1;
     delta = DisplayWidth - _xc;
-    pos = Video + Xstart + Ystart * DisplayWidth;
+    pos = Video + Xstart + Ystart * (ldat)DisplayWidth;
     
     while (yc--) {
 	xc = _xc;
@@ -1120,7 +999,7 @@ void FillOldVideo(dat Xstart, dat Ystart, dat Xend, dat Yend, hwattr Attrib) {
     yc = Yend - Ystart + 1;
     _xc = Xend - Xstart + 1;
     delta = DisplayWidth - _xc;
-    pos = OldVideo + Xstart + Ystart * DisplayWidth;
+    pos = OldVideo + Xstart + Ystart * (ldat)DisplayWidth;
     
     while (yc--) {
 	xc = _xc;
@@ -1157,8 +1036,8 @@ INLINE uldat Plain_countDirtyVideo(dat X1, dat Y1, dat X2, dat Y2) {
 }
 
 void StrategyReset(void) {
-    AccelVideo[0] = AccelVideo[1] = MAXDAT;
-    AccelVideo[2] = AccelVideo[3] = MINDAT;
+    AccelVideo[0] = AccelVideo[1] = TW_MAXDAT;
+    AccelVideo[2] = AccelVideo[3] = TW_MINDAT;
     StrategyFlag = HW_UNSET;
 }
 
@@ -1281,13 +1160,15 @@ byte StdAddMouseEvent(udat Code, dat MouseX, dat MouseY) {
 	&& (Msg = Ext(WM,MsgPort)->LastMsg)
 	&& Msg->Type==MSG_MOUSE
 	&& (Event=&Msg->Event.EventMouse)
-	&& Event->Code==Code) {
+	&& Event->Code==Code)
+    {
 	/* merge the two events */
 	Event->X=MouseX;
 	Event->Y=MouseY;
 	return TRUE;
     }
-    if ((Msg=Do(Create,Msg)(FnMsg, MSG_MOUSE, 0))) {
+    if ((Msg=Do(Create,Msg)(FnMsg, MSG_MOUSE, 0)))
+    {
 	Event=&Msg->Event.EventMouse;
 	Event->Code=Code;
 	Event->ShiftFlags=(udat)0;
@@ -1328,13 +1209,8 @@ byte InitTransUser(void) {
     udat c;
 #ifdef __linux__
 
-# ifdef CONF__UNICODE
 #  define SCRNMAP_T unsigned short
 #  define SCRNMAP_IOCTL GIO_UNISCRNMAP
-# else
-#  define SCRNMAP_T unsigned char
-#  define SCRNMAP_IOCTL GIO_SCRNMAP
-# endif
 
     SCRNMAP_T map[E_TABSZ];
 

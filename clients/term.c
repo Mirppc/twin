@@ -15,7 +15,7 @@
 #include <sys/ioctl.h>
 #include <signal.h>
 
-#include <Tw/Twautoconf.h>
+#include <Tw/autoconf.h>
 
 #ifdef TW_HAVE_SYS_RESOURCE_H
 # include <sys/resource.h>
@@ -35,10 +35,7 @@
 
 #include <Tw/Tw.h>
 #include <Tw/Twerrno.h>
-
-#ifdef CONF__UNICODE
-# include <Tutf/Tutf.h>
-#endif
+#include <Tutf/Tutf.h>
 
 #include "version.h"
 
@@ -78,13 +75,13 @@ static uldat FdListGrow(void) {
     uldat oldsize, size;
     fdlist *newFdList;
     
-    if ((oldsize = FdSize) == MAXULDAT)
+    if ((oldsize = FdSize) == TW_MAXULDAT)
 	return TW_NOSLOT;
     
     if ((size = oldsize < 64 ? 96 : oldsize + (oldsize>>1)) < oldsize)
-	size = MAXULDAT;
+	size = TW_MAXULDAT;
     
-    if (!(newFdList = (fdlist *)TwReAllocMem(FdList, size*sizeof(fdlist))))
+    if (!(newFdList = (fdlist *)TwReAllocMem0(FdList, sizeof(fdlist), oldsize, size)))
 	return TW_NOSLOT;
     
     for (FdSize = oldsize+1; FdSize<size; FdSize++)
@@ -179,7 +176,7 @@ void Resize(uldat Slot, dat X, dat Y) {
 
 static byte **TokenizeStringVec(uldat len, byte *s) {
     byte **cmd = NULL, *buf, c;
-    uldat save_len, save_n, n = 0;
+    uldat save_len, n = 0;
     
     /* skip initial spaces */
     while (len && ((c = *s) == '\0' || c == ' ')) {
@@ -202,7 +199,6 @@ static byte **TokenizeStringVec(uldat len, byte *s) {
 	    }
 	}
 	if ((cmd = TwAllocMem((n + 1) * sizeof(byte *)))) {
-	    save_n = n;
 	    n = 0;
 	    len = save_len;
 	    s = buf;
@@ -416,7 +412,6 @@ static void TwinTermH(void) {
 	    Fd = Fd_Slot(Slot);
 
 	    /* react as for keypresses */
-#ifdef CONF__UNICODE
 	    if (Event->EventSelectionNotify.Magic == TW_SEL_HWFONTMAGIC) {
 		byte *Dst = Event->EventSelectionNotify.Data;
 		hwfont *Src = (hwfont *)Dst;
@@ -428,7 +423,6 @@ static void TwinTermH(void) {
 		
 		write(Fd, Event->EventSelectionNotify.Data, Event->EventSelectionNotify.Len / sizeof(hwfont));
 	    } else
-#endif
 		write(Fd, Event->EventSelectionNotify.Data, Event->EventSelectionNotify.Len);
 
 	} else if (Msg->Type==TW_MSG_WIDGET_MOUSE) {

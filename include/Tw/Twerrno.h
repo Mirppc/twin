@@ -39,6 +39,7 @@
 #define TW_EGZIP_INTERNAL		23
 #define TW_ECALL_BAD			24
 #define TW_ECALL_BAD_ARG		25
+#define TW_ESERVER_READ_TIMEOUT		26
 
 
 #define TW_EDETAIL_NO_MODULE	1
@@ -58,8 +59,8 @@ tw_errno *Tw_ErrnoLocation(tdisplay TwD);
 #define Tw_Errno(TwD)		(Tw_ErrnoLocation(TwD)->E)
 #define Tw_ErrnoDetail(TwD)	(Tw_ErrnoLocation(TwD)->S)
 
-TW_FN_ATTR_CONST TW_CONST byte *Tw_StrError(TW_CONST tdisplay TwD, uldat e);
-TW_FN_ATTR_CONST TW_CONST byte *Tw_StrErrorDetail(TW_CONST tdisplay TwD, uldat e, uldat s);
+TW_ATTR_FN_CONST TW_CONST byte *Tw_StrError(TW_CONST tdisplay TwD, uldat e);
+TW_ATTR_FN_CONST TW_CONST byte *Tw_StrErrorDetail(TW_CONST tdisplay TwD, uldat e, uldat s);
 
 #define TwErrnoLocation		Tw_ErrnoLocation(Tw_DefaultD)
 #define TwErrno			Tw_Errno(Tw_DefaultD)

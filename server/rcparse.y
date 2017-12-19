@@ -22,29 +22,23 @@
 #include <sys/socket.h>
 
 #include <Tw/Twkeys.h>
-#ifdef CONF__UNICODE
-# include <Tutf/Tutf.h>
-#endif
+#include <Tutf/Tutf.h>
     
 #include "twin.h"
 #include "methods.h"
 #include "data.h"
+#include "extreg.h"
+#include "hw.h"
 #include "main.h"
 #include "printk.h"
-#include "util.h"
-#include "hw.h"
-#include "extreg.h"
-
 #include "rctypes.h"
-
+#include "util.h"
+#include "version.h"
 #include "wm.h"
-#include "rcrun.h"
 
-#ifdef CONF_THIS_MODULE
-# include "version.h"
-#endif
-
-#include "rcparse.h"
+#include "rcrun.h"       /* needs wm.h, rctypes.h */
+#include "rcparse_tab.h" /* needs rcrun.h         */
+#include "rcparse.h"     /* needs rcparse_tab.h   */
 
 
 /* also put here the CONF_* and DEBUG_* used in rcparse.h so that MkDep catches them */
@@ -123,7 +117,7 @@
 
 %token <val> GLOBAL_FLAG
 /* one of */
-%token ALTFONT CURSOR_ALWAYS BLINK MENU_HIDE MENU_INFO MENU_RELAX SCREEN_SCROLL SHADOWS
+%token ALTFONT CURSOR_ALWAYS BLINK MENU_HIDE MENU_INFO MENU_RELAX SCREEN_SCROLL TERMINALS_UTF8 SHADOWS
 %token BUTTON_PASTE BUTTON_SELECTION
 
 %token <val> COLOR

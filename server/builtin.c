@@ -18,37 +18,25 @@
 #include "main.h"
 #include "extreg.h"
 
+#include "dl.h"
+#include "draw.h"
+#include "common.h"
 #include "hw.h"
 #include "hw_multi.h"
-#include "common.h"
 #include "resize.h"
-#include "draw.h"
 #include "printk.h"
 #include "util.h"
 #include "version.h"
 
-#ifdef CONF__MODULES
-# include "dl.h"
-#endif
-
 #include <Tw/Twkeys.h>
 
-#ifdef CONF__UNICODE
-# include <Tutf/Tutf.h>
-# include <Tutf/Tutf_defs.h>
-
-# define _CHECK T_UTF_16_CHECK_MARK
-# define _FULL	T_UTF_16_FULL_BLOCK
-# define _LOWER T_UTF_16_LOWER_HALF_BLOCK
-# define _UPPER T_UTF_16_UPPER_HALF_BLOCK
-# define _MEDIUM_SHADE	T_UTF_16_MEDIUM_SHADE
-#else
-# define _CHECK 'û'
-# define _FULL  'Û'
-# define _LOWER 'Ü'
-# define _UPPER 'ß'
-# define _MEDIUM_SHADE	'±'
-#endif
+#include <Tutf/Tutf.h>
+#include <Tutf/Tutf_defs.h>
+#define _CHECK T_UTF_16_CHECK_MARK
+#define _FULL	T_UTF_16_FULL_BLOCK
+#define _LOWER T_UTF_16_LOWER_HALF_BLOCK
+#define _UPPER T_UTF_16_UPPER_HALF_BLOCK
+#define _MEDIUM_SHADE	T_UTF_16_MEDIUM_SHADE
 
 #define COD_QUIT	(udat)1 /* as in term.c */
 #define COD_SPAWN	(udat)3 /* as COD_SPAWN in term.c */
@@ -82,6 +70,7 @@
 #define COD_O_MENU_INFO	(udat)48
 #define COD_O_MENU_RELAX	(udat)49
 #define COD_O_SCREEN_SCROLL	(udat)50
+#define COD_O_TERMINALS_UTF8	(udat)51
 
 #define COD_D_REMOVE	(udat)60
 #define COD_D_THIS	(udat)61
@@ -92,9 +81,7 @@ msgport Builtin_MsgPort;
 
 static menu Builtin_Menu;
 static menuitem Builtin_File;
-#if defined(CONF__MODULES) && !(defined(CONF_SOCKET) && defined(CONF_TERM))
 static menuitem Builtin_Modules;
-#endif
 
 static window AboutWin, ClockWin, OptionWin, ButtonWin,
     DisplayWin, DisplaySubWin, ExecuteWin;
@@ -120,7 +107,6 @@ static void Clock_Update(void) {
     Builtin_MsgPort->PauseDuration.Seconds = 0;
 }
 
-#if defined(CONF__MODULES) && !(defined(CONF_TERM) && defined(CONF_SOCKET))
 static void TweakMenuRows(menuitem Item, udat code, byte flag) {
     window Win;
     row Row;
@@ -131,7 +117,6 @@ static void TweakMenuRows(menuitem Item, udat code, byte flag) {
 }
 
 static void UpdateMenuRows(widget dummy) {
-#ifndef CONF_TERM
     if (DlIsLoaded(TermSo)) {
 	TweakMenuRows(Builtin_Modules, COD_TERM_ON,    ROW_INACTIVE);
 	TweakMenuRows(Builtin_Modules, COD_TERM_OFF,   ROW_ACTIVE);
@@ -139,8 +124,6 @@ static void UpdateMenuRows(widget dummy) {
 	TweakMenuRows(Builtin_Modules, COD_TERM_ON,    ROW_ACTIVE);
 	TweakMenuRows(Builtin_Modules, COD_TERM_OFF,   ROW_INACTIVE);
     }
-#endif
-#ifndef CONF_SOCKET
     if (DlIsLoaded(SocketSo)) {
 	TweakMenuRows(Builtin_Modules, COD_SOCKET_ON,  ROW_INACTIVE);
 	TweakMenuRows(Builtin_Modules, COD_SOCKET_OFF, ROW_ACTIVE);
@@ -148,11 +131,7 @@ static void UpdateMenuRows(widget dummy) {
 	TweakMenuRows(Builtin_Modules, COD_SOCKET_ON,  ROW_ACTIVE);
 	TweakMenuRows(Builtin_Modules, COD_SOCKET_OFF, ROW_INACTIVE);
     }
-#endif
 }
-
-#endif
-
 
 static void SelectWinList(void) {
     screen Screen = All->FirstScreen;
@@ -252,6 +231,8 @@ void UpdateOptionWin(void) {
 	G->USE.T.Text[0][1] = Flags & SETUP_MENU_RELAX ? _CHECK : ' ';
     if ((G = Act(FindGadgetByCode,OptionWin)(OptionWin, COD_O_SCREEN_SCROLL)))
 	G->USE.T.Text[0][1] = Flags & SETUP_SCREEN_SCROLL ? _CHECK : ' ';
+    if ((G = Act(FindGadgetByCode,OptionWin)(OptionWin, COD_O_TERMINALS_UTF8)))
+	G->USE.T.Text[0][1] = Flags & SETUP_TERMINALS_UTF8 ? _CHECK : ' ';
     
     OptionWin->CurX = 25; OptionWin->CurY = 1;
     i = (Flags & SETUP_SHADOWS ? All->SetUp->DeltaXShade : 0) + '0';
@@ -308,6 +289,10 @@ static void OptionH(msg Msg) {
 	Flags ^= SETUP_SCREEN_SCROLL;
 	redraw = FALSE;
 	break;
+      case COD_O_TERMINALS_UTF8:
+	Flags ^= SETUP_TERMINALS_UTF8;
+	redraw = FALSE;
+	break;
       default:
 	redraw = FALSE;
 	break;
@@ -357,7 +342,6 @@ void FillButtonWin(void) {
 	    s = "Close ";
 	Act(TtyWriteAscii,ButtonWin)(ButtonWin, 7, "Button ");
 	Act(TtyWriteAscii,ButtonWin)(ButtonWin, 6, s);
-#ifdef CONF__UNICODE
 	{
 	    hwattr h[2];
 	    hwfont *f = All->ButtonVec[j].shape;
@@ -366,9 +350,6 @@ void FillButtonWin(void) {
 	    
 	    Act(TtyWriteHWAttr,ButtonWin)(ButtonWin, 15, 1+i*2, 2, h);
 	}
-#else
-	Act(TtyWriteHWFont,ButtonWin)(ButtonWin, 2, All->ButtonVec[j].shape);
-#endif
 	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)ButtonWin, 3, 1, "[+]",
 			  0, GADGETFL_TEXT_DEFCOL, 3 | (j<<2),
 			  COL(BLACK,WHITE), COL(HIGH|WHITE,GREEN),
@@ -496,7 +477,6 @@ static void BuiltinH(msgport MsgPort) {
     window NewWindow, tempWin;
     row Row;
     udat Code;
-    byte /*FontHeight,*/ Flags;
     
     Screen = All->FirstScreen;
     
@@ -530,7 +510,6 @@ static void BuiltinH(msgport MsgPort) {
 	  case MSG_MENU_ROW:
 	    if (Event->EventMenu.Menu==Builtin_Menu) {
 		Code=Event->EventMenu.Code;
-		Flags=All->SetUp->Flags;
 		switch (Code) {
 		  case COD_EXECUTE:
 		  case COD_CLOCK_WIN:
@@ -587,23 +566,19 @@ static void BuiltinH(msgport MsgPort) {
 		    SendControlMsg(Ext(WM,MsgPort), MSG_CONTROL_RESTART, 0, NULL);
 		    break;
 
-#if defined(CONF__MODULES) && !defined(CONF_TERM)
 		  case COD_TERM_ON:
 		    if (!DlLoad(TermSo))
 			break;
 		    /* FALLTHROUGH */
-#endif
-#if defined(CONF__MODULES) || defined(CONF_TERM)
-		 case COD_SPAWN:
+
+                  case COD_SPAWN:
 		    Ext(Term,Open)(NULL, NULL);
 		    break;
-#endif
-#if defined(CONF__MODULES) && !defined(CONF_TERM)
+
 		  case COD_TERM_OFF:
 		    DlUnLoad(TermSo);
 		    break;
-#endif
-#if defined(CONF__MODULES) && !defined(CONF_SOCKET)
+
 		  case COD_SOCKET_OFF:
 		    DlUnLoad(SocketSo);
 		    if (All->FirstDisplayHW)
@@ -614,7 +589,7 @@ static void BuiltinH(msgport MsgPort) {
 		    if (!DlLoad(SocketSo))
 			break;
 		    break;
-#endif
+
 		  default:
 		    break;
 		}
@@ -676,7 +651,7 @@ static void BuiltinH(msgport MsgPort) {
 		    && EventMouseY >= 0 && EventMouseY <= tempWin->YWidth-2
 		    && (uldat)EventMouseY+tempWin->YLogic < (uldat)tempWin->HLogic;
 
-		SelectRowWindow(tempWin, temp ? (uldat)EventMouseY+tempWin->YLogic : MAXLDAT);
+		SelectRowWindow(tempWin, temp ? (uldat)EventMouseY+tempWin->YLogic : TW_MAXLDAT);
 		
 		if (tempWin == WinList &&
 		    isRELEASE(Msg->Event.EventMouse.Code)) {
@@ -801,22 +776,18 @@ static byte InitScreens(void) {
 	return TRUE;
     }
     Error(NOMEMORY);
-    printk("twin: InitScreens(): %."STR(SMALLBUFF)"s\n", ErrStr);
+    printk("twin: InitScreens(): %."STR(TW_SMALLBUFF)"s\n", ErrStr);
     return FALSE;
 }
 
 byte InitBuiltin(void) {
     window Window;
     CONST byte *greeting = "\n"
-	"                TWIN             \n"
-	"        Text WINdows manager     \n\n"
-#ifdef CONF__UNICODE
-	"     Version " TWIN_VERSION_STR TWIN_VERSION_EXTRA_STR " (Unicode) by  \n\n"
-#else
-	"          Version " TWIN_VERSION_STR TWIN_VERSION_EXTRA_STR " by       \n\n"
-#endif
-	"        Massimiliano Ghilardi    \n\n"
-	"         <max@Linuz.sns.it>      ";
+	"                TWIN              \n"
+	"        Text WINdows manager      \n\n"
+	"     Version " TWIN_VERSION_STR TWIN_VERSION_EXTRA_STR " (Unicode) by   \n\n"
+	"        Massimiliano Ghilardi     \n\n"
+	"  https://github.com/cosmos72/twin";
     uldat grlen = strlen(greeting);
     
     if ((Builtin_MsgPort=Do(Create,MsgPort)
@@ -839,20 +810,13 @@ byte InitBuiltin(void) {
 	Row4Menu(Window,COD_MESSAGES_WIN,ROW_ACTIVE,10, " Messages ") &&
 #endif
 	Row4Menu(Window, COD_ABOUT_WIN,  ROW_ACTIVE, 9, " About   ") &&
-	Item4Menu(Builtin_Menu, Window, TRUE, 3, " ð ") &&
+	Item4Menu(Builtin_Menu, Window, TRUE, 3, " \xF0 ") &&
 	
 	(Window=Win4Menu(Builtin_Menu)) &&
-#if defined(CONF_TERM) || defined(CONF__MODULES)
-
 	Row4Menu(Window, COD_SPAWN,  ROW_ACTIVE,10, " New Term ") &&
-#endif
 	Row4Menu(Window, COD_EXECUTE,ROW_ACTIVE,10, " Execute  ") &&
-#if defined(CONF_WM_RC) || defined(CONF__MODULES)
 	Row4Menu(Window, COD_RELOAD_RC,ROW_ACTIVE,11," Reload RC ") &&
-	Row4Menu(Window, (udat)0,    ROW_IGNORE,11, "ÄÄÄÄÄÄÄÄÄÄÄ") &&
-#else
-	Row4Menu(Window, (udat)0,    ROW_IGNORE,10, "ÄÄÄÄÄÄÄÄÄÄ") &&
-#endif
+	Row4Menu(Window, (udat)0,    ROW_IGNORE,11, "\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4") &&
 	Row4Menu(Window, COD_DETACH, ROW_ACTIVE,10, " Detach   ") &&
 	Row4Menu(Window, COD_SUSPEND,ROW_ACTIVE,10, " Suspend  ") &&
 	Row4Menu(Window, COD_QUIT,   ROW_ACTIVE,10, " Quit     ") &&
@@ -861,32 +825,24 @@ byte InitBuiltin(void) {
 	(Window=Win4Menu(Builtin_Menu)) &&
 	Row4Menu(Window, (udat)0, ROW_INACTIVE,11," Undo      ") &&
 	Row4Menu(Window, (udat)0, ROW_INACTIVE,11," Redo      ") &&
-	Row4Menu(Window, (udat)0, ROW_IGNORE,  11,"ÄÄÄÄÄÄÄÄÄÄÄ") &&
+	Row4Menu(Window, (udat)0, ROW_IGNORE,  11,"\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4") &&
 	Row4Menu(Window, (udat)0, ROW_INACTIVE,11," Cut       ") &&
 	Row4Menu(Window, (udat)0, ROW_INACTIVE,11," Copy      ") &&
 	Row4Menu(Window, (udat)0, ROW_INACTIVE,11," Paste     ") &&
 	Row4Menu(Window, (udat)0, ROW_INACTIVE,11," Clear     ") &&
-	Row4Menu(Window, (udat)0, ROW_IGNORE,  11,"ÄÄÄÄÄÄÄÄÄÄÄ") &&
+	Row4Menu(Window, (udat)0, ROW_IGNORE,  11,"\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4") &&
 	Row4Menu(Window, (udat)0, ROW_INACTIVE,11," Clipboard ") &&
 	Item4Menu(Builtin_Menu, Window, TRUE, 6," Edit ") &&
 	
-#if defined(CONF__MODULES) && !(defined(CONF_TERM) && defined(CONF_SOCKET))
 	(Window=Win4Menu(Builtin_Menu)) &&
 	(Act(InstallHook,Window)(Window, UpdateMenuRows, &All->FnHookModule), TRUE) &&
 	
-#if !defined(CONF_TERM)
 	Row4Menu(Window, COD_TERM_ON,	ROW_ACTIVE,  20, " Run Twin Term      ") &&
 	Row4Menu(Window, COD_TERM_OFF,	ROW_INACTIVE,20, " Stop Twin Term     ") &&
-#endif
-#if !defined(CONF_SOCKET) && !defined(CONF_TERM)
-	Row4Menu(Window, (udat)0,       ROW_IGNORE,  20, "ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ") &&
-#endif	
-#if !defined(CONF_SOCKET)
+	Row4Menu(Window, (udat)0,       ROW_IGNORE,  20, "\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4") &&
 	Row4Menu(Window, COD_SOCKET_ON,	ROW_ACTIVE,  20, " Run Socket Server  ") &&
 	Row4Menu(Window, COD_SOCKET_OFF,ROW_INACTIVE,20, " Stop Socket Server ") &&
-#endif
 	(Builtin_Modules=Item4Menu(Builtin_Menu, Window, TRUE, 9," Modules ")) &&
-#endif
 	
 	Item4MenuCommon(Builtin_Menu) &&
 		
@@ -903,7 +859,7 @@ byte InitBuiltin(void) {
 	(OptionWin = Do(Create,Window)
 	 (FnWindow, Builtin_MsgPort, 7, "Options", NULL, Builtin_Menu, COL(HIGH|BLACK,BLACK),
 	  NOCURSOR, WINDOW_AUTO_KEYS|WINDOW_WANT_MOUSE|WINDOW_DRAG|WINDOW_CLOSE,WINDOWFL_USEROWS|WINDOWFL_ROWS_DEFCOL,
-	  37, 16, 0)) &&
+	  40, 18, 0)) &&
 
 	(ButtonWin = Do(Create,Window)
 	 (FnWindow, Builtin_MsgPort, 7, "Buttons", NULL, Builtin_Menu, COL(HIGH|WHITE,WHITE),
@@ -920,7 +876,7 @@ byte InitBuiltin(void) {
 	(DisplaySubWin = Do(Create,Window)
 	 (FnWindow, Builtin_MsgPort, 0, NULL, NULL, Builtin_Menu, COL(HIGH|BLACK,WHITE),
 	  NOCURSOR, WINDOW_AUTO_KEYS, WINDOWFL_USEROWS|WINDOWFL_ROWS_DEFCOL,
-	  10, MAXDAT, 0)) &&
+	  10, TW_MAXDAT, 0)) &&
 
 	(WinList = Do(Create,Window)
 	 (FnWindow, Builtin_MsgPort, 11, "Window List", NULL, Builtin_Menu, COL(WHITE,BLUE),
@@ -948,25 +904,29 @@ byte InitBuiltin(void) {
 	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)OptionWin, 27, 1, "[ ] Enable Screen Scrolling",
 			  0, GADGETFL_TEXT_DEFCOL, COD_O_SCREEN_SCROLL,
 			  COL(BLACK,WHITE), COL(HIGH|WHITE,GREEN),
-			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 14) &&
+			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 16) &&
 	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)OptionWin, 23, 1, "[ ] Menu Relaxed Arrows",
 			  0, GADGETFL_TEXT_DEFCOL, COD_O_MENU_RELAX,
 			  COL(BLACK,WHITE), COL(HIGH|WHITE,GREEN),
-			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 12) &&
+			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 14) &&
 	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)OptionWin, 25, 1, "[ ] Menu Information Line",
 			  0, GADGETFL_TEXT_DEFCOL, COD_O_MENU_INFO,
 			  COL(BLACK,WHITE), COL(HIGH|WHITE,GREEN),
-			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 10) &&
+			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 12) &&
 	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)OptionWin, 15, 1, "[ ] Hidden Menu",
 			  0, GADGETFL_TEXT_DEFCOL, COD_O_MENU_HIDE,
 			  COL(BLACK,WHITE), COL(HIGH|WHITE,GREEN),
-			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 8) &&
+			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 10) &&
 	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)OptionWin, 32, 1, "[ ] Enable Blink/High Background",
 			  0, GADGETFL_TEXT_DEFCOL, COD_O_BLINK,
 			  COL(BLACK,WHITE), COL(HIGH|WHITE,GREEN),
-			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 6) &&
+			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 8) &&
 	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)OptionWin, 22, 1, "[ ] Always Show Cursor",
 			  0, GADGETFL_TEXT_DEFCOL, COD_O_CURSOR_ALWAYS,
+			  COL(BLACK,WHITE), COL(HIGH|WHITE,GREEN),
+			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 6) &&
+	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)OptionWin, 37, 1, "[ ] New terminals start in UTF-8 mode",
+			  0, GADGETFL_TEXT_DEFCOL, COD_O_TERMINALS_UTF8,
 			  COL(BLACK,WHITE), COL(HIGH|WHITE,GREEN),
 			  COL(HIGH|BLACK,WHITE), COL(HIGH|BLACK,BLACK), 2, 4) &&
 	Do(Create,Gadget)(FnGadget, Builtin_MsgPort, (widget)OptionWin, 3, 1, "[+]",
@@ -1045,7 +1005,7 @@ byte InitBuiltin(void) {
 	return TRUE;
     }
     Error(NOMEMORY);
-    printk("twin: InitBuiltin(): %."STR(SMALLBUFF)"s\n", ErrStr);
+    printk("twin: InitBuiltin(): %."STR(TW_SMALLBUFF)"s\n", ErrStr);
     return FALSE;
 }
 

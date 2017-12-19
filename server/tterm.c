@@ -96,7 +96,6 @@ static window OpenTerm(CONST byte *arg0, byte * CONST *argv) {
     return NULL;
 }
 
-#ifdef CONF__UNICODE
 static void TermWriteHWFontWindow(window W, uldat len, CONST hwfont *hwData) {
     hwfont (*inv_charset)(hwfont) = W->USE.C.TtyData->InvCharset;
     byte *Data, *sData;
@@ -110,7 +109,6 @@ static void TermWriteHWFontWindow(window W, uldat len, CONST hwfont *hwData) {
 	FreeMem(sData);
     }
 }
-#endif
 
 static void TwinTermH(msgport MsgPort) {
     msg Msg;
@@ -140,12 +138,10 @@ static void TwinTermH(msgport MsgPort) {
 	    
 	    if ((Win = (window)Id2Obj(window_magic_id,
 				      Event->EventSelectionNotify.ReqPrivate))) {
-#ifdef CONF__UNICODE
 		if (Event->EventSelectionNotify.Magic == SEL_HWFONTMAGIC)
 		    TermWriteHWFontWindow(Win, Event->EventSelectionNotify.Len / sizeof(hwfont),
 					    (hwfont *)Event->EventSelectionNotify.Data);
 		else
-#endif
 		    (void)RemoteWindowWriteQueue(Win, Event->EventSelectionNotify.Len,
 						 Event->EventSelectionNotify.Data);
 	    }
@@ -188,16 +184,16 @@ static void TwinTermH(msgport MsgPort) {
 }
 
 static void TwinTermIO(int Fd, window Window) {
-    static byte buf[BIGBUFF];
+    static byte buf[TW_BIGBUFF];
     uldat got = 0, chunk = 0;
     
     do {
 	/*
-	 * BIGBUFF - 1 to avoid silly windows...
+	 * TW_BIGBUFF - 1 to avoid silly windows...
 	 * linux ttys buffer up to 4095 bytes.
 	 */
-	chunk = read(Fd, buf + got, BIGBUFF - 1 - got);
-    } while (chunk && chunk != (uldat)-1 && (got += chunk) < BIGBUFF - 1);
+	chunk = read(Fd, buf + got, TW_BIGBUFF - 1 - got);
+    } while (chunk && chunk != (uldat)-1 && (got += chunk) < TW_BIGBUFF - 1);
     
     if (got)
 	Act(TtyWriteAscii,Window)(Window, got, buf);
@@ -205,8 +201,6 @@ static void TwinTermIO(int Fd, window Window) {
 	/* something bad happened to our child :( */
 	Delete(Window);
 }
-
-#ifdef THIS_MODULE
 
 #include "tty.h"
 
@@ -233,9 +227,6 @@ static void OverrideMethods(byte enter) {
 
 
 byte InitModule(module Module)
-#else
-byte InitTerm(void)
-#endif
 {
     window Window;
     byte *shellpath, *shell;
@@ -261,26 +252,22 @@ byte InitTerm(void)
 	Item4MenuCommon(Term_Menu)) {
 
 	RegisterExt(Term,Open,OpenTerm);
-#ifdef THIS_MODULE
 	OverrideMethods(TRUE);
-#endif
 
 	if (default_args[1][0] == '/')
 	    default_args[1][0] = '-';
 	return TRUE;
     }
     if (shellpath)
-	printk("twin: InitTerm(): %."STR(SMALLBUFF)"s\n", ErrStr);
+	printk("twin: InitTerm(): %."STR(TW_SMALLBUFF)"s\n", ErrStr);
     else
 	printk("twin: environment variable $SHELL not set!\n");
     return FALSE;
 }
 
-#ifdef THIS_MODULE
 void QuitModule(module Module) {
     UnRegisterExt(Term,Open,OpenTerm);
     OverrideMethods(FALSE);
     if (Term_MsgPort)
 	Delete(Term_MsgPort);
 }
-#endif /* THIS_MODULE */

@@ -17,20 +17,16 @@
 #include "data.h"
 
 #include <Tw/Twkeys.h>
-
-#ifdef CONF__UNICODE
-# include <Tutf/Tutf.h>
-#endif
+#include <Tutf/Tutf.h>
 
 /* setup configuration paths */
 
-#ifdef LIBDIR
-CONST byte *conf_destdir_lib_twin = LIBDIR "/twin";
-CONST byte *conf_destdir_lib_twin_modules_ = LIBDIR "/twin/modules/";
-#else
-CONST byte *conf_destdir_lib_twin = ".";
-CONST byte *conf_destdir_lib_twin_modules_ = "./";
+#ifndef PKG_LIBDIR
+# warning PKG_LIBDIR is not #defined, assuming "/usr/local/lib/twin"
+# define PKG_LIBDIR "/usr/local/lib/twin"
 #endif
+
+CONST byte * CONST pkg_libdir = PKG_LIBDIR;
 
 
 
@@ -102,43 +98,19 @@ static struct s_all _All = {
     
     { { {0, }, }, }, /* ButtonVec[] */
 
-#ifdef CONF__UNICODE
     
-    {	    /* LAT1_MAP mapped to Unicode -- it's the identity */
-	    NULL,
-	    /* IBMPC_MAP mapped to Unicode -- get from libTutf */
-	    Tutf_CP437_to_UTF_16,
-	    /* USER_MAP */
-	    GtransUser
+    {
+	/* VT100GR_MAP mapped to Unicode -- get from libTutf */
+	Tutf_VT100GR_to_UTF_16,
+        /* LATIN1_MAP mapped to Unicode -- it's the identity */
+        NULL,
+	/* IBMPC_MAP mapped to Unicode -- get from libTutf */
+	Tutf_CP437_to_UTF_16,
+	/* USER_MAP */
+	GtransUser
     },
-    
-#else /* !CONF__UNICODE */
-    
-    {	    /* LAT1_MAP mapped to CP437 -- just a best fit */
-	    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-	    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-	    "\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2a\x2b\x2c\x2d\x2e\x2f"
-	    "\x30\x31\x32\x33\x34\x35\x36\x37\x38\x39\x3a\x3b\x3c\x3d\x3e\x3f"
-	    "\x40\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4a\x4b\x4c\x4d\x4e\x4f"
-	    "\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5a\x5b\x5c\x5d\x5e\x5f"
-	    "\x60\x61\x62\x63\x64\x65\x66\x67\x68\x69\x6a\x6b\x6c\x6d\x6e\x6f"
-	    "\x70\x71\x72\x73\x74\x75\x76\x77\x78\x79\x7a\x7b\x7c\x7d\x7e\xFE"
-	    "\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE"
-	    "\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE\xFE"
-	    "\xFF\xAD\x9B\x9C\xFE\x9D\xFE\x15\x22\x43\xA6\xAE\xAA\x2D\x52\xFE"
-	    "\xF8\xF1\xFD\xFE\xFE\xE6\x14\xFA\x2C\xFE\xA7\xAF\xAC\xAB\xFE\xA8"
-	    "\x41\x41\x41\x41\x8E\x8F\x92\x80\x45\x90\x45\x45\x49\x49\x49\x49"
-	    "\xFE\xA5\x4F\x4F\x4F\x4F\x99\x78\xE8\x55\x55\x55\x9A\x59\xFE\xE1"
-	    "\x85\xA0\x83\x61\x84\x86\x91\x87\x8A\x82\x88\x89\x8D\xA1\x8C\x8B"
-	    "\xFE\xA4\x95\xA2\x93\x6F\x94\xF6\xED\x97\xA3\x96\x81\x79\xFE\x98",
-	    /* IBMPC_MAP to CP437 -- it's the identity */
-	    NULL,
-	    /* USER_MAP */
-	    GtransUser
-    },
-#endif /* CONF__UNICODE */
 };
-all All = &_All;
+all CONST All = &_All;
 
 
 keylist TW_KeyList[] = {
@@ -149,23 +121,23 @@ keylist TW_KeyList[] = {
 };
 
 
-hwfont GadgetResize[2] = {(byte)'Í', (byte)'¼'},
-ScrollBarX[3] = {(byte)'±', (byte)'\x11', (byte)'\x10'},
-ScrollBarY[3] = {(byte)'±', (byte)'\x1E', (byte)'\x1f'},
-TabX = (byte)'Û', TabY = (byte)'Û',
+hwfont GadgetResize[2] = {0xCD, 0xBC},
+ScrollBarX[3] = {0xB1, 0x11, 0x10},
+ScrollBarY[3] = {0xB1, 0x1E, 0x1f},
+TabX = 0xDB, TabY = 0xDB,
 StdBorder[2][9] =
 {
     {
-	(byte)'É',(byte)'Í',(byte)'»',
-	(byte)'º',(byte)' ',(byte)'º',
-	(byte)'È',(byte)'Í',(byte)'¼'
+	0xC9,0xCD,0xBB,
+	0xBA,0x20,0xBA,
+	0xC8,0xCD,0xBC
     }, {
-	(byte)'Ú',(byte)'Ä',(byte)'¿',
-	(byte)'³',(byte)' ',(byte)'³',
-	(byte)'À',(byte)'Ä',(byte)'Ù'
+	0xDA,0xC4,0xBF,
+	0xB3,0x20,0xB3,
+	0xC0,0xC4,0xD9
     }
 },
-Screen_Back[2] = { (byte)'\x12', (byte)'\x12' };
+Screen_Back[2] = { 0x12, 0x12 };
 
 
 hwcol DEFAULT_ColGadgets = COL(HIGH|YELLOW,CYAN),
@@ -177,7 +149,6 @@ DEFAULT_ColDisabled = COL(HIGH|BLACK,BLACK),
 DEFAULT_ColSelectDisabled = COL(BLACK,HIGH|BLACK);
 
 byte InitData(void) {
-#ifdef CONF__UNICODE
     hwfont *vec [] = { GadgetResize, ScrollBarX, ScrollBarY, &TabX, &TabY, StdBorder[0], StdBorder[1], Screen_Back };
     byte  sizes [] = {            2,          3,          3,     1,     1,            9,            9,           2 };
     int i, j;
@@ -186,6 +157,5 @@ byte InitData(void) {
 	for (j = 0; j < sizes[i]; j++)
 	    vec[i][j] = Tutf_CP437_to_UTF_16[vec[i][j]];
     }
-#endif /* CONF__UNICODE */
     return AssignId_all(All);
 }

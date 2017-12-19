@@ -69,7 +69,7 @@
  * 
  * Focus [On|Off|Toggle]
  * 
- * GlobalFlags [[+|-]AltFont] [[+|-]CursorAlways] [[+|-]Blink] [[+|-]ScreenScroll] [[+|-]MenuHide] [[+|-]MenuItems] [[+|-]Shadows] [Shadows <x> <y>] [ButtonSelection <n>]
+ * GlobalFlags [[+|-]AltFont] [[+|-]CursorAlways] [[+|-]Blink] [[+|-]ScreenScroll] [[+|-]TerminalsUtf8] [[+|-]MenuHide] [[+|-]MenuItems] [[+|-]Shadows] [Shadows <x> <y>] [ButtonSelection <n>]
  * 
  * Interactive <kind>
  * # Scroll, Move, Resize, Screen, Menu
@@ -167,7 +167,7 @@ ldat GlobalFlags[4];
 ldat GlobalShadows[2];
 
 
-static void yyerror(char *s) {
+static void yyerror(const char *s) {
     printk("twin: %s:%d: %s\n", FILE_NAME, LINE_NO, s);
 }
 
@@ -314,13 +314,8 @@ static ldat FreeButtonPos(ldat n, ldat lr) {
 
 static byte ImmButton(ldat n, str shape, ldat lr, ldat flag, ldat pos) {
     if (n >= 0 && n < BUTTON_MAX && strlen(shape) >= 2) {
-#ifdef CONF__UNICODE
 	All->ButtonVec[n].shape[0] = Tutf_CP437_to_UTF_16[shape[0]];
 	All->ButtonVec[n].shape[1] = Tutf_CP437_to_UTF_16[shape[1]];
-#else
-	All->ButtonVec[n].shape[0] = shape[0];
-	All->ButtonVec[n].shape[1] = shape[1];
-#endif
 	if (lr == FL_RIGHT)
 	    pos = -pos;
 	if (flag == '+' || flag == '-')
@@ -382,8 +377,9 @@ static byte ImmGlobalFlags(node l) {
 	  case MENU_INFO:    i = SETUP_MENU_INFO;    break;
 	  case MENU_RELAX:   i = SETUP_MENU_RELAX;   break;
 	  case SHADOWS:      i = SETUP_SHADOWS;      break;
-	  case BUTTON_PASTE:  i = 0;                  break;
-	  case BUTTON_SELECTION: i = -1;              break;
+          case TERMINALS_UTF8:     i = SETUP_TERMINALS_UTF8;     break;
+	  case BUTTON_PASTE:  i = 0;                 break;
+	  case BUTTON_SELECTION: i = -1;             break;
 	  default:           return FALSE;
 	}
 	if (i > 0) switch (l->x.f.flag) {
@@ -1017,9 +1013,7 @@ static byte CreateNeededScreens(node list, screen *res_Screens) {
     hwcol c;
     uldat w, h, len, _len;
     byte *n;
-#ifdef CONF__UNICODE
     hwfont f;
-#endif
     
     while (list) {
 	w = h = 0;
@@ -1041,13 +1035,8 @@ static byte CreateNeededScreens(node list, screen *res_Screens) {
 		    c = list->x.color;
 		    r = attr + w * h;
 		    while (len--) {
-#ifdef CONF__UNICODE
 			f = Tutf_CP437_to_UTF_16[*n++];
 			*r++ = HWATTR(c, f);
-#else
-			*r++ = HWATTR(c, *n);
-			n++;
-#endif			
 		    }
 		    while (_len++ < w)
 			*r++ = HWATTR(c, ' ');
@@ -1115,7 +1104,7 @@ static void DeleteUnneededScreens(node list) {
 
 static void NewCommonMenu_Overflow(void) {
     printk("twin: RC parser: user-defined menu is too big! (max is %d entries)\n",
-	    (int)(MAXUDAT - COD_RESERVED + 1));
+	    (int)(TW_MAXUDAT - COD_RESERVED + 1));
 }
 
 /*
@@ -1147,7 +1136,7 @@ static byte NewCommonMenu(void **shm_M, menu *res_CommonMenu,
 	}
     }
     
-    if (new_MenuBindsMax > MAXUDAT - COD_RESERVED) {
+    if (new_MenuBindsMax > TW_MAXUDAT - COD_RESERVED) {
 	NewCommonMenu_Overflow();
 	return FALSE;
     }
@@ -1183,7 +1172,7 @@ static byte NewCommonMenu(void **shm_M, menu *res_CommonMenu,
 	    if (!(Line = (str )AllocMem(maxlen + 1)))
 		break;
 	    
-	    WriteMem(Line, 'Ä', maxlen);
+	    WriteMem(Line, 0xC4, maxlen);
 	    Line[maxlen] = '\0'; /* not strictly necessary */
 
 	    for (N = M->body; N; N = N->next) {
@@ -1284,10 +1273,7 @@ static byte ReadGlobals(void) {
 
 static byte rcparse(str path);
 
-#ifdef THIS_MODULE
-static
-#endif
-byte rcload(void) {
+static byte rcload(void) {
     str path;
     uldat len;
 #ifndef DEBUG_FORK
@@ -1303,8 +1289,8 @@ byte rcload(void) {
      * try to guess a reasonable size:
      * assume a failsafe avg of a node every 4 bytes
      */
-    len = Min2(len, MAXULDAT / sizeof(node));
-    len = Max2(len, BIGBUFF) * sizeof(node) / 4;
+    len = Min2(len, TW_MAXULDAT / sizeof(node));
+    len = Max2(len, TW_BIGBUFF) * sizeof(node) / 4;
     
     if (!shm_init(len)) {
 	FreeMem(path);
@@ -1380,9 +1366,6 @@ byte rcload(void) {
 #endif
 }
 
-
-#ifdef THIS_MODULE
-
 byte InitModule(module Module) {
     Module->Private = (void *)rcload;
     return TRUE;
@@ -1390,6 +1373,5 @@ byte InitModule(module Module) {
 
 void QuitModule(module Module) {
 }
-#endif /* THIS_MODULE */
 
 #endif /* _TWIN_RCPARSE_H */

@@ -18,45 +18,26 @@ hwfont T_CAT3(Tutf_,T_TEMPLATE,_to_UTF_16)[0x100] = {
 #undef EL
 };
 
-static byte T_CAT(flag_,T_TEMPLATE);
-
-static utf_to_ch T_CAT(array_,T_TEMPLATE) [] = {
-#define EL(x) { T_UTF(UTF_16,x), T_UTF(T_TEMPLATE,x) },
-    T_NLIST(T_TEMPLATE,EL)
+hwfont T_CAT(Tutf_UTF_16_to_,T_TEMPLATE) (hwfont c)
+{
+#define EL(x) +1
+    enum {
+        n = T_NLIST(T_TEMPLATE,EL) + 0, /* +0 in case T_NLIST() expands to nothing */
+        n_power_of_2 = NEXT_POWER_OF_2(n)
+    };
 #undef EL
-};
-
-hwfont T_CAT(Tutf_UTF_16_to_,T_TEMPLATE)(hwfont c) {
-    static utf_to_ch key;
-    TW_CONST utf_to_ch *res;
     
-    /* T_TEMPLATE obviously cannot contain all unicode chars. this is just a best effort. */
-    if (!T_CAT(flag_,T_TEMPLATE)) {
-	T_CAT(flag_,T_TEMPLATE) = TRUE;
-	QSORT(T_CAT(array_,T_TEMPLATE));
-    }
-    if (c == key.utf)
-	return key.ch;
-    if ((c & ~0x00ff) == 0xf000 ||
-	/* direct-to-font area */
-	(c >= ' ' && c <= '~') ||
-	/* ASCII area */
-	(c > '~' && c < 0x100 && T_CAT3(Tutf_,T_TEMPLATE,_to_UTF_16)[c] == c))
-	/* c has the same meaning in Unicode and this charset... sheer luck! */
-
-	return c & 0x00ff;
+    static utf16_hash_table * table = NULL;
     
-    key.utf = c;
-    res = BSEARCH(&key, T_CAT(array_,T_TEMPLATE));
-    
-    if (res)
-	c = res->ch;
-    else if (c > '~')
-	/* try to approximate */
-	c = T_CAT(Tutf_CP437_to_,T_MAP(ASCII)) [ Tutf_UTF_16_to_CP437(c) ];
-    /* else c = c; */
+    /* a single 8-bit charset obviously cannot contain all unicode chars. this is just a best effort. */
+    if (!table)
+	table = utf16_hash_create(T_CAT3(Tutf_,T_TEMPLATE,_to_UTF_16), n, n_power_of_2);
 
-    return key.ch = c;
+#ifdef TEMPLATE_REDEFINES_ASCII
+    return utf16_hash_search(table, c, FALSE);
+#else
+    return utf16_hash_search(table, c, TRUE);
+#endif
 }
 
 #undef T_TEMPLATE

@@ -18,31 +18,31 @@
 #ifndef MD5_H
 #define MD5_H
 
-#include "autoconf.h"
+#include "twautoconf.h" /* for TW_HAVE_*, uint32_t */
+#include "compiler.h"   /* for INLINE, CONST */
 
-#ifdef HAVE_STDDEF_H
+#ifdef TW_HAVE_STDINT_H
+# include <stdint.h> /* for uint32_t */
+#endif
+
+#ifdef TW_HAVE_STDDEF_H
 # include <stddef.h> /* for size_t */
 #endif
 
-#ifdef HAVE_STDINT_H
-# include <stdint.h> /* for uint32_t */
-  typedef uint32_t md5_uint32;
-#else
-# warning <stdint.h> not found, checking that 'unsigned int' is 32 bits wide...
-  typedef char md5_uint32_check [sizeof(unsigned int) == 4 ? 1 : -1];
-  typedef unsigned int md5_uint32;
-#endif
+typedef uint32_t md5_uint32;
+
+typedef char assert_md5_uint32_is_really_32_bits_wide [sizeof(md5_uint32) == 4 ? 1 : -1];
 
 struct MD5Context {
     md5_uint32 buf[4];
     md5_uint32 bits[2];
-    unsigned char in[64];
+    md5_uint32 in[16];
 };
 
 void MD5Init(struct MD5Context *context);
-void MD5Update(struct MD5Context *context, unsigned char const *buf, size_t len);
+void MD5Update(struct MD5Context *context, unsigned char CONST *buf, size_t len);
 void MD5Final(unsigned char digest[16], struct MD5Context *context);
-void MD5Transform(md5_uint32 buf[4], md5_uint32 const in[16]);
+void MD5Transform(md5_uint32 buf[4], md5_uint32 CONST in[16]);
 
 /*
  * This is needed to make RSAREF happy on some MS-DOS compilers.

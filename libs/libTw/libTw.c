@@ -28,30 +28,43 @@
  * Life is tricky... under SunOS hstrerror() is in an obscure library, so it gets disabled,
  * yet <netdb.h> has its prototype, so the #define hstrerror() in <Tw/missing.h> breaks it.
  * Solution: include <Tw/Tw.h> (pulls in <Tw/missing.h>) late, but still include
- * <Tw/Twautoconf.h> and <Tw/osincludes.h> early to pull in TW_HAVE_* and system headers
+ * "twconfig.h" and <Tw/osincludes.h> early to pull in TW_HAVE_* and system headers
  * necessary to include <sys/socket.h> under FreeBSD.
  */
-#include <Tw/Twautoconf.h>
+#include "twautoconf.h" /* for TW_HAVE* macros */
+#include "twconfig.h"   /* for CONF_* macros */
 #include <Tw/osincludes.h>
 
-#include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/un.h>
-#include <arpa/inet.h>
-
-#ifdef CONF_SOCKET_GZ
+#ifdef TW_HAVE_SIGNAL_H
+# include <signal.h>
+#endif
+#ifdef TW_HAVE_SYS_STAT_H
+# include <sys/stat.h>
+#endif
+#ifdef TW_HAVE_SYS_SOCKET_H
+# include <sys/socket.h>
+#endif
+#ifdef TW_HAVE_FCNTL_H
+# include <fcntl.h>
+#endif
+#ifdef TW_HAVE_NETDB_H
+# include <netdb.h>
+#endif
+#ifdef TW_HAVE_NETINET_IN_H
+# include <netinet/in.h>
+#endif
+#ifdef TW_HAVE_SYS_UN_H
+# include <sys/un.h>
+#endif
+#ifdef TW_HAVE_ARPA_INET_H
+# include <arpa/inet.h>
+#endif
+#ifdef TW_HAVE_ZLIB_H
 # include <zlib.h>
 #endif
-
-#ifdef CONF_SOCKET_PTHREADS
+#ifdef TW_HAVE_PTHREAD_H
 # include <pthread.h>
 #endif
-
 #ifdef TW_HAVE_SYS_IOCTL_H
 # include <sys/ioctl.h>
 #endif
@@ -69,8 +82,9 @@
 TH_R_MUTEX_HELPER_DEFS(static);
 #endif
     
-#include "unaligned.h"
 #include "md5.h"
+#include "unaligned.h"
+#include "util.h"
 #include "version.h"
 
 /* remove the `Obj' suffix from Tw_ChangeFieldObj() */
@@ -241,6 +255,24 @@ byte Tw_EnableGzip(tw_d TwD);
 void *(*Tw_AllocMem)(size_t) = malloc;
 void *(*Tw_ReAllocMem)(void *, size_t) = realloc;
 void  (*Tw_FreeMem)(void *) = free;
+
+void *Tw_AllocMem0(size_t ElementSize, size_t Count) {
+    void * Mem;
+    if (Tw_AllocMem == malloc) {
+        Mem = calloc(Count, ElementSize);
+    } else if ((Mem = Tw_AllocMem(Count * ElementSize)) != NULL) {
+        Tw_WriteMem(Mem, '\0', Count * ElementSize);
+    }
+    return Mem;
+}
+
+void *Tw_ReAllocMem0(void * Mem, size_t ElementSize, size_t OldCount, size_t NewCount) {
+    void * newMem;
+    if ((newMem = Tw_ReAllocMem(Mem, NewCount * ElementSize)) != NULL) {
+        Tw_WriteMem((char *)newMem + OldCount * ElementSize, '\0', (NewCount - OldCount) * ElementSize); 
+    }
+    return newMem;
+}
 
 /**
  * creates a copy of a chunk of memory
@@ -710,13 +742,17 @@ byte Tw_TimidFlush(tw_d TwD) {
     return b;
 }
     
-/* return bytes read, or (uldat)-1 for errors */
-static uldat TryRead(tw_d TwD, byte Wait) {
-    fd_set fset;
-    uldat got = 0, len;
+static TW_CONST timevalue TimeoutZero = {0,0}, Timeout5Seconds = {5,0};
+#define TIMEOUT_INFINITE  ((timevalue *)0)
+#define TIMEOUT_ZERO      (&TimeoutZero)
+#define TIMEOUT_5_SECONDS (&Timeout5Seconds)
+
+/* return bytes read, or (uldat)-1 for errors / timeout */
+static uldat TryRead(tw_d TwD, TW_CONST timevalue * Timeout) {
+    uldat got = 0, len = 0;
     int sel, fd;
     byte *t, mayread;
-    byte Q;
+    byte Q, timedout = FALSE;
     
 #ifdef CONF_SOCKET_GZ
     if (GzipFlag)
@@ -725,22 +761,46 @@ static uldat TryRead(tw_d TwD, byte Wait) {
 #endif
 	Q = QREAD;
     
-    if (Wait) {
+    if (!Timeout || Timeout->Seconds || Timeout->Fraction) {
+        fd_set fset;
+        struct timeval timeout;
+        timevalue deadline;
 	FD_ZERO(&fset);
-	do {
+        if (Timeout) {
+            timeout.tv_sec = Timeout->Seconds;
+            timeout.tv_usec = Timeout->Fraction / MicroSEC;
+            InstantNow(&deadline);
+            IncrTime(&deadline, Timeout);
+        }
+	for (;;) {
 	    fd = Fd;
 	    /* drop LOCK before sleeping! */
 	    UNLK;
 	    FD_SET(fd, &fset);
-	    sel = select(fd+1, &fset, NULL, NULL, NULL); 
+	    sel = select(fd+1, &fset, NULL, NULL, Timeout ? &timeout : NULL); 
 	    FD_CLR(fd, &fset);
 	    LOCK;
 
 	    /* maybe another thread received some data? */
 	    (void)GetQueue(TwD, QREAD, &len);
-	    if (len)
-		break;
-	} while (sel != 1);
+            if (len != 0 || sel > 0)
+                break;
+            if (sel == -1 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)
+                break;
+            
+            if (Timeout) {
+                timevalue actual, to_sleep;
+                InstantNow(&actual);
+                if (CmpTime(&actual, &deadline) >= 0) {
+                    timedout = TRUE;
+                    break;
+                }
+                to_sleep = deadline; /* struct copy */
+                DecrTime(&to_sleep, &actual);
+                timeout.tv_sec = to_sleep.Seconds;
+                timeout.tv_usec = to_sleep.Fraction / MicroSEC;
+            }
+        }
     }
     
 
@@ -759,12 +819,15 @@ static uldat TryRead(tw_d TwD, byte Wait) {
 	t += got - len;
 	do {
 	    got = read(Fd, t, len);
-	} while (got == (uldat)-1 && errno == EINTR);
+	} while (got == (uldat)-1 && errno == EINTR && !timedout);
 	
 	Qlen[Q] -= len - (got == (uldat)-1 ? 0 : got);
 	
-	if (got == 0 || (got == (uldat)-1 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) {
-	    Errno = TW_ESERVER_LOST_CONNECT;
+	if (got == 0 || (got == (uldat)-1 && (timedout || (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)))) {
+            if (got == (uldat)-1 && timedout)
+                Errno = TW_ESERVER_READ_TIMEOUT;
+            else
+                Errno = TW_ESERVER_LOST_CONNECT;
 	    Panic(TwD);
 	    return (uldat)-1;
 	}
@@ -811,7 +874,7 @@ static byte *Wait4Reply(tw_d TwD, uldat Serial) {
     byte *MyReply = NULL;
     if (Fd != TW_NOFD && ((void)GetQueue(TwD, QWRITE, &left), left)) {
 	if (Flush(TwD, TRUE)) while (Fd != TW_NOFD && !(MyReply = FindReply(TwD, Serial)))
-	    if (TryRead(TwD, TRUE) != (uldat)-1)
+	    if (TryRead(TwD, TIMEOUT_INFINITE) != (uldat)-1)
 		ParseReplies(TwD);
     }
     return Fd != TW_NOFD ? MyReply : NULL;
@@ -823,7 +886,7 @@ static uldat ReadUldat(tw_d TwD) {
     
     (void)GetQueue(TwD, QREAD, &l);
     while (Fd != TW_NOFD && l < sizeof(uldat)) {
-	if ((chunk = TryRead(TwD, TRUE)) != (uldat)-1)
+	if ((chunk = TryRead(TwD, TIMEOUT_INFINITE)) != (uldat)-1)
 	    l += chunk;
 	else
 	    return 0;
@@ -884,7 +947,7 @@ static byte ProtocolNumbers(tw_d TwD) {
     uldat len = 0, chunk, _len = strlen(hostdata);
     
     while (Fd != TW_NOFD && (!len || ((servdata = GetQueue(TwD, QREAD, NULL)), len < *servdata))) {
-	if ((chunk = TryRead(TwD, TRUE)) != (uldat)-1)
+	if ((chunk = TryRead(TwD, TIMEOUT_5_SECONDS)) != (uldat)-1)
 	    len += chunk;
     }
 
@@ -948,7 +1011,7 @@ static byte MagicNumbers(tw_d TwD) {
 
     /* wait for server magic */
     while (Fd != TW_NOFD && (!len || ((hostdata = GetQueue(TwD, QREAD, NULL)), len < *hostdata))) {
-	if ((chunk = TryRead(TwD, TRUE)) != (uldat)-1)
+	if ((chunk = TryRead(TwD, TIMEOUT_5_SECONDS)) != (uldat)-1)
 	    len += chunk;
     }
 
@@ -1037,7 +1100,7 @@ static byte MagicChallenge(tw_d TwD) {
     
     (void)GetQueue(TwD, QREAD, &got);
     while (Fd != TW_NOFD && got < challenge) {
-	if ((chunk = TryRead(TwD, TRUE)) != (uldat)-1)
+	if ((chunk = TryRead(TwD, TIMEOUT_5_SECONDS)) != (uldat)-1)
 	    got += chunk;
     }
     
@@ -1072,7 +1135,7 @@ static byte MagicChallenge(tw_d TwD) {
 tw_d Tw_Open(TW_CONST byte *TwDisplay) {
     tw_d TwD;
     int i, result = -1, fd = TW_NOFD;
-    byte *options, gzip = FALSE;
+    byte *options, gzip = FALSE, handshake = FALSE;
 
     if (!TwDisplay && (!(TwDisplay = getenv("TWDISPLAY")) || !*TwDisplay)) {
 	CommonErrno = TW_ENO_DISPLAY;
@@ -1197,16 +1260,18 @@ tw_d Tw_Open(TW_CONST byte *TwDisplay) {
     th_mutex_unlock(OpenCountMutex);
 
     LOCK;
-    if (ProtocolNumbers(TwD) && MagicNumbers(TwD) && MagicChallenge(TwD)) {
-	UNLK;
-	if (gzip)
+    handshake = ProtocolNumbers(TwD) && MagicNumbers(TwD) && MagicChallenge(TwD);
+    UNLK;
+    
+    if (handshake) {
+        if (gzip)
 	    (void)Tw_EnableGzip(TwD);
 	return TwD;
     }
-    UNLK;
     
     if (Fd != TW_NOFD) {
-	close(Fd); Fd = TW_NOFD; /* to skip Flush() */
+	close(Fd);
+        Fd = TW_NOFD; /* to skip Flush() */
     }
     Tw_Close(TwD);
     return (tw_d)0;
@@ -1294,7 +1359,7 @@ TW_CONST byte *Tw_AttachGetReply(tw_d TwD, uldat *len) {
 	
 	answ = GetQueue(TwD, QREAD, &chunk);
 	if (!chunk) {
-	    (void)TryRead(TwD, TRUE);
+	    (void)TryRead(TwD, TIMEOUT_INFINITE);
 	    answ = GetQueue(TwD, QREAD, &chunk);
 	}
 	if (chunk) {
@@ -1348,7 +1413,7 @@ tw_errno *Tw_ErrnoLocation(tw_d TwD) {
 /**
  * returns a string description of given error
  */
-TW_FN_ATTR_CONST TW_CONST byte *Tw_StrError(TW_CONST tw_d TwD, uldat e) {
+TW_ATTR_FN_CONST TW_CONST byte *Tw_StrError(TW_CONST tw_d TwD, uldat e) {
     switch (e) {
       case 0:
 	return "success";
@@ -1400,6 +1465,8 @@ TW_FN_ATTR_CONST TW_CONST byte *Tw_StrError(TW_CONST tw_d TwD, uldat e) {
 	return "function call rejected by server, wrong data sizes? : ";
       case TW_ECALL_BAD_ARG:
 	return "function call rejected by server, invalid arguments? : ";
+      case TW_ESERVER_READ_TIMEOUT:
+	return "failed to receive data from server: read timeout";
       default:
 	return "unknown error";
     }
@@ -1408,7 +1475,7 @@ TW_FN_ATTR_CONST TW_CONST byte *Tw_StrError(TW_CONST tw_d TwD, uldat e) {
 /**
  * returns a string description of given error detail
  */
-TW_FN_ATTR_CONST TW_CONST byte *Tw_StrErrorDetail(TW_CONST tw_d TwD, uldat E, uldat S) {
+TW_ATTR_FN_CONST TW_CONST byte *Tw_StrErrorDetail(TW_CONST tw_d TwD, uldat E, uldat S) {
     switch (E) {
       case TW_ESERVER_LOST_CONNECT:
 	switch (S) {
@@ -1485,7 +1552,7 @@ static tmsg ReadMsg(tw_d TwD, byte Wait, byte deQueue) {
 	if (!len) {
 	    Flush(TwD, Wait);
 	    do {
-		if (TryRead(TwD, Wait) != (uldat)-1) {
+		if (TryRead(TwD, Wait ? TIMEOUT_INFINITE : TIMEOUT_ZERO) != (uldat)-1) {
 		    ParseReplies(TwD);
 		    Msg = (tmsg)GetQueue(TwD, QMSG, &len);
 		}
@@ -2320,7 +2387,7 @@ void Tw_WriteTextGadget(tw_d TwD, tgadget G, dat Width, dat Height, TW_CONST byt
  */
 void Tw_SetTextGadget(tw_d TwD, tgadget G, dat Width, dat Height, TW_CONST byte *Text, dat Left, dat Up) {
     /* clear the whole gadget */
-    Tw_WriteTextsGadget(TwD, G, 1, MAXDAT, MAXDAT, NULL, 0, 0);
+    Tw_WriteTextsGadget(TwD, G, 1, TW_MAXDAT, TW_MAXDAT, NULL, 0, 0);
     /* write the specified text */
     Tw_WriteTextsGadget(TwD, G, 1, Width, Height, Text, Left, Up);
 }
@@ -2330,7 +2397,7 @@ void Tw_SetTextGadget(tw_d TwD, tgadget G, dat Width, dat Height, TW_CONST byte 
  */
 void Tw_SetTextsGadget(tw_d TwD, tgadget G, byte bitmap, dat Width, dat Height, TW_CONST byte *Text, dat Left, dat Up) {
     /* clear the whole gadget */
-    Tw_WriteTextsGadget(TwD, G, bitmap, MAXDAT, MAXDAT, NULL, 0, 0);
+    Tw_WriteTextsGadget(TwD, G, bitmap, TW_MAXDAT, TW_MAXDAT, NULL, 0, 0);
     /* write the specified text */
     Tw_WriteTextsGadget(TwD, G, bitmap, Width, Height, Text, Left, Up);
 }
@@ -2348,7 +2415,7 @@ void Tw_WriteHWFontGadget(tw_d TwD, tgadget G, dat Width, dat Height, TW_CONST h
  */
 void Tw_SetHWFontGadget(tw_d TwD, tgadget G, dat Width, dat Height, TW_CONST hwfont *HWFont, dat Left, dat Up) {
     /* clear the whole gadget */
-    Tw_WriteHWFontsGadget(TwD, G, 1, MAXDAT, MAXDAT, NULL, 0, 0);
+    Tw_WriteHWFontsGadget(TwD, G, 1, TW_MAXDAT, TW_MAXDAT, NULL, 0, 0);
     /* write the specified text */
     Tw_WriteHWFontsGadget(TwD, G, 1, Width, Height, HWFont, Left, Up);
 }
@@ -2358,7 +2425,7 @@ void Tw_SetHWFontGadget(tw_d TwD, tgadget G, dat Width, dat Height, TW_CONST hwf
  */
 void Tw_SetHWFontsGadget(tw_d TwD, tgadget G, byte bitmap, dat Width, dat Height, TW_CONST hwfont *HWFont, dat Left, dat Up) {
     /* clear the whole gadget */
-    Tw_WriteHWFontsGadget(TwD, G, bitmap, MAXDAT, MAXDAT, NULL, 0, 0);
+    Tw_WriteHWFontsGadget(TwD, G, bitmap, TW_MAXDAT, TW_MAXDAT, NULL, 0, 0);
     /* write the specified text */
     Tw_WriteHWFontsGadget(TwD, G, bitmap, Width, Height, HWFont, Left, Up);
 }

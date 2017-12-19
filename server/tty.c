@@ -29,16 +29,9 @@
 #include <Tw/Tw.h>
 #include <Tw/Twstat.h>
 #include <Tw/Twstat_defs.h>
+#include <Tutf/Tutf.h>
 
-#ifdef CONF__UNICODE
-# include <Tutf/Tutf.h>
-#endif
-
-#ifdef CONF__UNICODE
 extern hwattr extra_POS_INSIDE;
-#else
-# define extra_POS_INSIDE 0
-#endif
 
 
 /*
@@ -90,9 +83,9 @@ static byte dirtyN;
 #define saveG		Data->saveG
 #define saveG0		Data->saveG0
 #define saveG1		Data->saveG1
-#define utf		Data->utf
-#define utf_count	Data->utf_count
-#define utf_char	Data->utf_char
+#define utf8		Data->utf8
+#define utf8_count	Data->utf8_count
+#define utf8_char	Data->utf8_char
 #define newLen		Data->newLen
 #define newMax		Data->newMax
 #define newName		Data->newName
@@ -121,7 +114,7 @@ static void dirty_tty(dat x1, dat y1, dat x2, dat y2) {
     ldat S[2] = {0, 0};
     dat xy[2][4];
     
-    if (dirtyN == MAXBYTE || x1 > x2 || x1 >= SizeX || y1 > y2 || y1 >= SizeY)
+    if (dirtyN == TW_MAXBYTE || x1 > x2 || x1 >= SizeX || y1 > y2 || y1 >= SizeY)
 	return;
 
     x2 = Min2(x2, SizeX-1);
@@ -141,7 +134,7 @@ static void dirty_tty(dat x1, dat y1, dat x2, dat y2) {
     i = dirtyN && S[0] > S[1];
 
     if (S[i] >= SizeX*SizeY*3/4) {
-	dirtyN = MAXBYTE;
+	dirtyN = TW_MAXBYTE;
 	return;
     } else if (i < dirtyN) {
 	CopyMem(xy[i], dirty[i], 4*sizeof(dat));
@@ -161,7 +154,7 @@ static void flush_tty(void) {
     
     /* first, draw on screen whatever changed in the window */
     if (dirtyN) {
-	if (dirtyN == MAXBYTE)
+	if (dirtyN == TW_MAXBYTE)
 	    DrawLogicWidget((widget)Win, 0, ScrollBack, SizeX-1, SizeY-1 + ScrollBack);
 	else for (i=0; i<dirtyN; i++)
 	    DrawLogicWidget((widget)Win, dirty[i][0], dirty[i][1] + ScrollBack, dirty[i][2], dirty[i][3] + ScrollBack);
@@ -204,7 +197,7 @@ static void invert_screen(void) {
     
     while (count--) {
 	a = *p;
-	*p++ = (a & ~HWATTR(MAXHWCOL, 0)) | HWATTR(COL(COLBG(HWCOL(a)), COLFG(HWCOL(a))), 0);
+	*p++ = (a & ~HWATTR(TW_MAXWCOL, 0)) | HWATTR(COL(COLBG(HWCOL(a)), COLFG(HWCOL(a))), 0);
 	if (p == Split) p = Base;
     }
 }
@@ -547,12 +540,14 @@ static void update_eff(void) {
     Color = COL(fg, bg);
 }
 
-#ifdef CONF__UNICODE
-
 # define setCharset(g) do switch ((currG = (g))) { \
-  case LAT1_MAP: \
-    Charset = Tutf_ISO_8859_1_to_UTF_16; \
-    InvCharset = Tutf_UTF_16_to_ISO_8859_1; \
+  case VT100GR_MAP: \
+    Charset = Tutf_VT100GR_to_UTF_16; \
+    InvCharset = Tutf_UTF_16_to_VT100GR; \
+    break; \
+  case LATIN1_MAP: \
+    Charset = Tutf_ISO8859_1_to_UTF_16; \
+    InvCharset = Tutf_UTF_16_to_ISO8859_1; \
     break; \
   case IBMPC_MAP: \
     Charset = Tutf_CP437_to_UTF_16; \
@@ -560,7 +555,7 @@ static void update_eff(void) {
     break; \
   case USER_MAP: \
     Charset = All->Gtranslations[USER_MAP]; \
-    InvCharset = Tutf_UTF_16_to_ISO_8859_1; /* very rough :( */ \
+    InvCharset = Tutf_UTF_16_to_ISO8859_1; /* very rough :( */ \
     break; \
 } while (0)
 
@@ -570,17 +565,6 @@ INLINE hwfont applyG(hwfont c) {
     return c;
 }
 
-#else /* !CONF__UNICODE */
-
-# define setCharset(g) (currG = (g))
-
-INLINE hwfont applyG(hwfont c) {
-    if (currG == IBMPC_MAP)
-	return c;
-    return All->Gtranslations[currG][c & 0xFF];
-}
-
-#endif /* CONF__UNICODE */
 
 INLINE void csi_m(void) {
     dat i;
@@ -923,17 +907,11 @@ static void reset_tty(byte do_clear) {
     nPar = 0;
     
     G = saveG = 0;
-    /*
-     * default to latin1 charset if CONF__UNICODE is enabled
-     */
-#ifdef CONF__UNICODE
-    setCharset(G0 = saveG0 = LAT1_MAP);
-#else
-    setCharset(G0 = saveG0 = IBMPC_MAP);
-#endif
-    G1 = saveG1 = GRAF_MAP;
+    /* default to latin1 charset */
+    setCharset(G0 = saveG0 = LATIN1_MAP);
+    G1 = saveG1 = VT100GR_MAP;
 
-    utf = utf_count = utf_char = 0;
+    utf8 = utf8_count = utf8_char = 0;
     
     /*
     bell_pitch = DEFAULT_BELL_PITCH;
@@ -952,10 +930,10 @@ static void reset_tty(byte do_clear) {
 static byte grow_newtitle(void) {
     ldat _Max;
     byte *_Name;
-    if (newMax < MAXDAT) {
+    if (newMax < TW_MAXDAT) {
 	_Max = ((ldat)newMax + (newMax >> 1) + 3) | All->SetUp->MinAllocSize;
-	if (_Max > MAXDAT)
-	    _Max = MAXDAT;
+	if (_Max > TW_MAXDAT)
+	    _Max = TW_MAXDAT;
 	if ((_Name = ReAllocMem(newName, _Max))) {
 	    newName = _Name;
 	    newMax = _Max;
@@ -1004,11 +982,11 @@ INLINE void write_ctrl(byte c) {
       case 0:
 	return;
       case 7:
-	if (DState != ESxterm_1 && DState != ESxterm_2) {
+	if (DState != ESxterm_ignore && DState != ESxterm_title) {
 	    BeepHW();
 	    return;
 	}
-	if (DState == ESxterm_2)
+	if (DState == ESxterm_title)
 	    set_newtitle();
 	DState = ESnormal;
 	return;
@@ -1124,11 +1102,11 @@ INLINE void write_ctrl(byte c) {
 	    ResetPaletteHW();
 	else if (c=='1') {
 	    /* may be xterm set window icon title */
-	    DState = ESxterm_1_;
+	    DState = ESxterm_ignore_;
 	    return;
-	} else if (c=='2') {
-	    /* may be xterm set window title */
-	    DState = ESxterm_2_;
+	} else if (c=='0'||c=='2'||c=='7') {
+	    /* may be xterm "set icon name & window title" or xterm "set window title" or OS X "set current directory title" */
+	    DState = ESxterm_title_;
 	    return;
 	}
 	break;
@@ -1311,11 +1289,11 @@ INLINE void write_ctrl(byte c) {
       case ESpercent:
 	switch (c) {
 	  case '@':  /* defined in ISO 2022 */
-	    utf = 0;
+	    utf8 = 0;
 	    break;
 	  case 'G':  /* prelim official escape code */
 	  case '8':  /* retained for compatibility */
-	    utf = 1;
+	    utf8 = 1;
 	    break;
 	}
 	break;
@@ -1332,8 +1310,8 @@ INLINE void write_ctrl(byte c) {
 	
       case ESsetG0:
 	switch (c) {
-	  case '0': G0 = GRAF_MAP; break;
-	  case 'B': G0 = LAT1_MAP; break;
+	  case '0': G0 = VT100GR_MAP; break;
+	  case 'B': G0 = LATIN1_MAP; break;
 	  case 'U': G0 = IBMPC_MAP; break;
 	  case 'K': G0 = USER_MAP; break;
 	  default: break;
@@ -1344,8 +1322,8 @@ INLINE void write_ctrl(byte c) {
 	
       case ESsetG1:
 	switch (c) {
-	  case '0': G1 = GRAF_MAP; break;
-	  case 'B': G1 = LAT1_MAP; break;
+	  case '0': G1 = VT100GR_MAP; break;
+	  case 'B': G1 = LATIN1_MAP; break;
 	  case 'U': G1 = IBMPC_MAP; break;
 	  case 'K': G1 = USER_MAP; break;
 	  default: break;
@@ -1354,25 +1332,25 @@ INLINE void write_ctrl(byte c) {
 	    setCharset(G1);
 	break;
 	
-      case ESxterm_1_:
+      case ESxterm_ignore_:
 	if (c == ';') {
-	    DState = ESxterm_1;
+	    DState = ESxterm_ignore;
 	    return;
 	}
 	break;
 	
-      case ESxterm_1:
-	/* ignore, cannot set window icon title */
+      case ESxterm_ignore:
+	/* ignore, cannot set icon name */
 	return;
 	
-      case ESxterm_2_:
+      case ESxterm_title_:
 	if (c == ';') {
-	    DState = ESxterm_2;
+	    DState = ESxterm_title;
 	    return;
 	}
 	break;
 	
-      case ESxterm_2:
+      case ESxterm_title:
 	if (c >= ' ' && insert_newtitle(c))
 	    return;
 	break;
@@ -1449,44 +1427,44 @@ static void common(window Window) {
 }
 
 /*
- * combine (*pc) with partial utf-8 char stored in utf_char.
+ * combine (*pc) with partial utf-8 char stored in utf8_char.
  * return TRUE if the utf-8 char is complete, and can be displayed.
  */
-static byte combine_utf(hwfont *pc) {
+static byte combine_utf8(hwfont *pc) {
     hwfont c = *pc;
     
-    if (utf_count > 0 && (c & 0xc0) == 0x80) {
-	utf_char = (utf_char << 6) | (c & 0x3f);
-	utf_count--;
-	if (utf_count == 0)
-	    *pc = utf_char;
-	return utf_count == 0;
+    if (utf8_count > 0 && (c & 0xc0) == 0x80) {
+	utf8_char = (utf8_char << 6) | (c & 0x3f);
+	utf8_count--;
+	if (utf8_count == 0)
+	    *pc = utf8_char;
+	return utf8_count == 0;
     }
 
     if ((c & 0xe0) == 0xc0) {
-	utf_count = 1;
-	utf_char = (c & 0x1f);
+	utf8_count = 1;
+	utf8_char = (c & 0x1f);
     } else if ((c & 0xf0) == 0xe0) {
-	utf_count = 2;
-	utf_char = (c & 0x0f);
+	utf8_count = 2;
+	utf8_char = (c & 0x0f);
     } else if ((c & 0xf8) == 0xf0) {
-	utf_count = 3;
-	utf_char = (c & 0x07);
+	utf8_count = 3;
+	utf8_char = (c & 0x07);
     } else if ((c & 0xfc) == 0xf8) {
-	utf_count = 4;
-	utf_char = (c & 0x03);
+	utf8_count = 4;
+	utf8_char = (c & 0x03);
     } else if ((c & 0xfe) == 0xfc) {
-	utf_count = 5;
-	utf_char = (c & 0x01);
+	utf8_count = 5;
+	utf8_char = (c & 0x01);
     } else
-	utf_count = 0;
+	utf8_count = 0;
     return FALSE;
 }
 
 /* this is the main entry point */
 void TtyWriteAscii(window Window, ldat Len, CONST byte *AsciiSeq) {
     hwfont c;
-    byte ok;
+    byte printable, utf8_in_use, disp_ctrl, state_normal;
     
     if (!Window || !Len || !AsciiSeq || !W_USE(Window, USECONTENTS) || !Window->USE.C.TtyData)
 	return;
@@ -1504,24 +1482,33 @@ void TtyWriteAscii(window Window, ldat Len, CONST byte *AsciiSeq) {
 	 * as the console would be pretty useless without them; to display an arbitrary
 	 * font position use the direct-to-font zone in UTF-8 mode.
 	 */
-	if (utf) {
-	    if (c & 0x80) {
-		if (!combine_utf(&c))
-		    continue;
-	    } else
-		utf_count = 0;
-	} else {
-	    /* !utf */
-	    if (*Flags & TTY_SETMETA)
-		c |= 0x80;
-	}
+	if ((state_normal = (DState == ESnormal))) {
+            disp_ctrl = *Flags & TTY_DISPCTRL;
+            utf8_in_use = utf8 && !disp_ctrl;
+            
+            if (utf8_in_use) {
+                if (c & 0x80) {
+                    if (!combine_utf8(&c))
+                        continue;
+                } else
+                    utf8_count = 0;
+                
+                printable = c >= 32 && c != 127 && c != 128+27;
 
-	ok = (c >= 32 || (!utf && !(((*Flags & TTY_DISPCTRL ? CTRL_ALWAYS : CTRL_ACTION) >> c) & 1)))
-	    && (c != 127 || (*Flags & TTY_DISPCTRL)) && (c != 128+27) &&
-	    (utf || (c = applyG((byte)c)));
+            } else {
+                if (*Flags & TTY_SETMETA)
+                    c |= 0x80;
+                
+                printable = (c >= 32 || !(((disp_ctrl ? CTRL_ALWAYS : CTRL_ACTION) >> c) & 1)) &&
+                    (c != 127 || disp_ctrl) && (c != 128+27);
 
-	
-	if (DState == ESnormal && ok) {
+                if (printable)
+                    c = applyG((byte)c);
+            }
+        } else
+            utf8_in_use = printable = FALSE;
+
+	if (printable && state_normal) {
 	    /* Now try to find out how to display it */
 	    if (*Flags & TTY_NEEDWRAP) {
 		cr();
@@ -1549,12 +1536,7 @@ void TtyWriteAscii(window Window, ldat Len, CONST byte *AsciiSeq) {
 }
 
 
-#if TW_SIZEOFHWFONT == 1
-void TtyWriteHWFont(window Window, ldat Len, CONST hwfont *HWFont) {
-    TtyWriteAscii(Window, Len, (CONST byte *)HWFont);
-}
-#else
-/* same as TtyWriteAscii(), but writes hwfont (unicode). Useful only if CONF__UNICODE is enabled. */
+/* same as TtyWriteAscii(), but writes hwfont (UCS-2 + colors + graph tiles). */
 void TtyWriteHWFont(window Window, ldat Len, CONST hwfont *HWFont) {
     hwfont c;
     byte ok;
@@ -1568,7 +1550,7 @@ void TtyWriteHWFont(window Window, ldat Len, CONST hwfont *HWFont) {
 	c = *HWFont++;
 	Len--;
 	
-	/* If the original code is 8-bit, behave as TtyWriteAscii() with LAT1_MAP*/
+	/* If the original code is 8-bit, behave as TtyWriteAscii() with LATIN1_MAP*/
 	if (c < 0x100) {
 	    if (*Flags & TTY_SETMETA)
 		c |= 0x80;
@@ -1603,7 +1585,6 @@ void TtyWriteHWFont(window Window, ldat Len, CONST hwfont *HWFont) {
     }
     flush_tty();
 }
-#endif
 
 /*
  * this writes String literally, without interpreting specially any character
@@ -1649,10 +1630,8 @@ void TtyWriteString(window Window, ldat Len, CONST byte *String) {
  */
 void TtyWriteHWAttr(window Window, dat x, dat y, ldat len, CONST hwattr *text) {
     ldat left, max, chunk;
-#ifdef CONF__UNICODE
     ldat i;
     hwattr extra;
-#endif
     hwattr *dst;
     
     if (!Window || !len || !text || !W_USE(Window, USECONTENTS) || !Window->USE.C.TtyData)
@@ -1688,18 +1667,12 @@ void TtyWriteHWAttr(window Window, dat x, dat y, ldat len, CONST hwattr *text) {
 	    dst -= Split - Base;
 	max = Split - dst;
 	chunk = Min2(left, max);
-#ifdef CONF__UNICODE
 	for (i = chunk; i; i--, text++, dst++) {
 	    if ((extra = HWEXTRA32(*text)))
 		*dst = *text;
 	    else
 		*dst = *text | extra_POS_INSIDE;
 	}
-#else
-	CopyMem(text, dst, chunk * sizeof(hwattr));
-	text += chunk;
-	dst += chunk;
-#endif
     } while ((left -= chunk) > 0);
 
     if (len > SizeX - x)

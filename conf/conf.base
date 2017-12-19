@@ -14,9 +14,7 @@ CONF_OPT_MENU="Runtime options"
 
 CONF__SHLIBS_HELP="Enable shared libraries"
 CONF__MODULES_HELP="Enable shared modules"
-CONF__UNICODE_HELP="Enable Unicode support (libTutf)"
 CONF__ALLOC_HELP="Use custom mmap() based malloc/free"
-CONF__LONG_LONG_HELP="Use C type 'long long' if supported (not recommended)"
 CONF__ASM_HELP="Use hand-optimized assembler code if available"
 CONF_SOCKET_HELP="Support remote socket connections (libTw)"
 CONF_SOCKET_GZ_HELP=" -> Sockets: support gzip compression"
@@ -59,9 +57,7 @@ CONF_OPT_SCREEN_SCROLL_HELP="Runtime option: enable screen scrolling"
 menu CONF__
   yesno CONF__SHLIBS
   yesno CONF__MODULES
-  yesno CONF__UNICODE
   yesno CONF__ALLOC
-  yesno CONF__LONG_LONG
   yesno CONF__ASM
 endmenu
 menu CONF_SOCKET
@@ -98,7 +94,7 @@ menu CONF_HW
   yesno_dep CONF_HW_TTY_LRAWKBD CONF_HW_TTY
   yesno_dep CONF_HW_TTY_TWTERM CONF_HW_TTY
   yesno_dep CONF_HW_TTY_TERMCAP CONF_HW_TTY
-  yesmodno_truedep CONF_HW_GFX CONF__UNICODE
+  yesmodno CONF_HW_GFX
   yesmodno CONF_HW_X11
   yesmodno_truedep CONF_HW_TWIN CONF_SOCKET
   yesmodno_truedep CONF_HW_DISPLAY CONF_SOCKET

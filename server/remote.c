@@ -38,21 +38,21 @@ static uldat FdListGrow(void) {
     uldat oldsize, size;
     fdlist *newFdList;
     
-    if ((oldsize = FdSize) == MAXULDAT) {
+    if ((oldsize = FdSize) == TW_MAXULDAT) {
 	Error(NOMEMORY);
 	return NOSLOT;
     }
     
-    if ((size = oldsize < SMALLBUFF/3 ? SMALLBUFF/2 : oldsize + (oldsize>>1)) < oldsize)
-	size = MAXULDAT;
+    if ((size = oldsize < TW_SMALLBUFF/3 ? TW_SMALLBUFF/2 : oldsize + (oldsize>>1)) < oldsize)
+	size = TW_MAXULDAT;
     
-    if (!(newFdList = (fdlist *)ReAllocMem(FdList, size*sizeof(fdlist)))) {
-	Error(NOMEMORY);
+    if (!(newFdList = (fdlist *)ReAllocMem0(FdList, sizeof(fdlist), oldsize, size))) {
 	return NOSLOT;
     }
-    
-    for (FdSize = oldsize+1; FdSize<size; FdSize++)
-	newFdList[FdSize].Fd = NOFD;
+
+    for (FdSize = oldsize+1; FdSize<size; FdSize++) {
+        newFdList[FdSize].Fd = NOFD;
+    }
     
     FdList = newFdList;
     
@@ -61,9 +61,9 @@ static uldat FdListGrow(void) {
 
 INLINE void FdListShrink(void) {
     fdlist *newFdList;
-    uldat size = Max2(SMALLBUFF, FdTop << 1);
+    uldat size = Max2(TW_SMALLBUFF, FdTop << 1);
     
-    if (size < FdSize && (newFdList = (fdlist *)ReAllocMem(FdList, size*sizeof(fdlist)))) {
+    if (size < FdSize && (newFdList = (fdlist *)ReAllocMem0(FdList, sizeof(fdlist), FdSize, size))) {
 	FdList = newFdList;
 	FdSize = size;
     }
@@ -81,7 +81,6 @@ byte RemoteFlush(uldat Slot) {
     if (Slot == NOSLOT || Slot >= FdTop || LS.Fd == NOFD)
 	return FALSE;
 
-#if defined(CONF_SOCKET_GZ) || defined(CONF__MODULES)
     if (LS.PrivateFlush) {
 	/* a (gzipped) paired slot:
 	 * PrivateFlush() does everything:
@@ -95,7 +94,6 @@ byte RemoteFlush(uldat Slot) {
 	
 	return (byte)chunk;
     }
-#endif
 
     if (LS.WQlen == 0) {
 	if (LS.PrivateAfterFlush)
@@ -248,7 +246,7 @@ void UnRegisterRemote(uldat Slot) {
 		break;
 	FdTop = (j == FdBottom) ? j : j + 1;
 	
-	if (FdSize > (FdTop << 4) && FdSize > SMALLBUFF)
+	if (FdSize > (FdTop << 4) && FdSize > TW_SMALLBUFF)
 	    FdListShrink();
     }
 }
@@ -379,7 +377,7 @@ void RemoteParanoia(void) {
 	if (test < 10) {
 	    /* solved ? */
 	    printk("                    ... problem disappeared after a few tries, was:\n"
-		   "                        errno = %d (%."STR(SMALLBUFF)"s)\n",
+		   "                        errno = %d (%."STR(TW_SMALLBUFF)"s)\n",
 		   strerror(last_errno));
 	    return;
 	}
@@ -460,6 +458,8 @@ uldat RemoteWriteQueue(uldat Slot, uldat len, CONST void *data) {
 	FdWQueued++;
     if (data)
 	CopyMem(data, LS.WQueue + LS.WQlen, len);
+    else
+        WriteMem(LS.WQueue + LS.WQlen, '\0', len);
     LS.WQlen += len;
     return len;
 }

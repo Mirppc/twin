@@ -20,17 +20,43 @@
  *
  */
 
-#include <grp.h>
-#include <signal.h>
-#include <sys/stat.h>
+/* tell <stdlib.h> to declare grantpt(), unlockpt(), ptsname() */
+# define _GNU_SOURCE
+# define _XOPEN_SOURCE
 
-#ifdef CONF_TERM_DEVPTS
+#include "twautoconf.h" /* for TW_HAVE* macros */
+#include "twconfig.h"   /* for CONF_* macros */
+
+#ifdef TW_HAVE_STDLIB_H
 # include <stdlib.h>
+#endif
+#ifdef TW_HAVE_SYS_STAT_H
+# include <sys/stat.h>
+#endif
+#ifdef TW_HAVE_FCNTL_H
+# include <fcntl.h>
+#endif
+#ifdef TW_HAVE_GRP_H
+# include <grp.h>
+#endif
+#ifdef TW_HAVE_TERMIOS_H
+# include <termios.h>
+#else
+# ifdef TW_HAVE_TERMIO_H
+#  include <termio.h>
+# endif
+#endif
+#ifdef TW_HAVE_SYS_IOCTL_H
+# include <sys/ioctl.h>
+#endif
+#ifdef TW_HAVE_SIGNAL_H
+# include <signal.h>
 #endif
 
 #include "tty_ioctl.h"
 
 #include "twin.h"
+#include "data.h"
 #include "main.h"
 #include "printk.h"
 #include "util.h"
@@ -41,7 +67,7 @@
 static char *ptydev, *ttydev;
 static int ptyfd, ttyfd;
 
-#define SS "%."STR(SMALLBUFF)"s"
+#define SS "%."STR(TW_SMALLBUFF)"s"
 
 static void pty_error(CONST byte *d, CONST byte *f, CONST byte *arg) {
     printk("twin: "SS": "SS"(\""SS"\") failed: "SS"\n",
@@ -68,7 +94,7 @@ static byte get_pty(void)
     
     /* open master pty */
     if (
-# ifdef HAVE_GETPT
+# ifdef TW_HAVE_GETPT
 	(fd = getpt()) >= 0
 # else
 	(fd = open("/dev/ptmx", O_RDWR|O_NOCTTY)) >= 0
@@ -91,7 +117,7 @@ static byte get_pty(void)
 	close(fd);
     } else
 	get_pty_error(
-# ifdef HAVE_GETPT
+# ifdef TW_HAVE_GETPT
 		      "getpt", ""
 # else
 		      "open", "/dev/ptmx"
@@ -161,15 +187,19 @@ static void setup_pty_error(CONST byte *f, CONST byte *arg) {
  * do it before the fork() and NOT in the child to avoid
  * races with future tty resizes performed by the parent!
  */
-static byte setup_tty(udat x, udat y) {
+static byte setup_tty(ttydata * Data) {
     struct winsize wsiz;
     /* from hw.c, ttysave is the console original state */
     extern struct termios ttysave;
     
-    wsiz.ws_col = x;
-    wsiz.ws_row = y;
+    if (All->SetUp->Flags & SETUP_TERMINALS_UTF8)
+        Data->utf8 = 1;
+    
+    wsiz.ws_col = Data->SizeX;
+    wsiz.ws_row = Data->SizeY;
     wsiz.ws_xpixel = 0;
     wsiz.ws_ypixel = 0;
+    
     
     if (ioctl(ptyfd, TIOCSWINSZ, &wsiz) >= 0) {
 	if (tty_setioctl(ttyfd, &ttysave) >= 0)
@@ -240,7 +270,7 @@ byte SpawnInWindow(window Window, CONST byte *arg0, byte * CONST *argv) {
     DropPrivileges();
 
     /* 3 */
-    if (setup_tty(Window->USE.C.TtyData->SizeX, Window->USE.C.TtyData->SizeY)) {
+    if (setup_tty(Window->USE.C.TtyData)) {
 	switch ((childpid = fork())) {
 	  case -1:
 	    /* failed */

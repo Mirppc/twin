@@ -42,17 +42,17 @@ static byte InitClip(void) {
 	 (Clip_Win, 0x1FF,
 	  COL(HIGH|GREEN,WHITE), COL(CYAN,BLUE), COL(HIGH|BLUE,BLACK), COL(HIGH|WHITE,HIGH|BLUE), COL(HIGH|WHITE,HIGH|BLUE),
 	  COL(HIGH|WHITE,HIGH|BLACK), COL(HIGH|BLACK,WHITE), COL(BLACK,HIGH|BLACK), COL(BLACK,WHITE)),
-	 TwConfigureWindow(Clip_Win, 0xF<<2, 0, 0, 7, 3, MAXDAT, MAXDAT),
+	 TwConfigureWindow(Clip_Win, 0xF<<2, 0, 0, 7, 3, TW_MAXDAT, TW_MAXDAT),
 	 (Window=TwWin4Menu(Clip_Menu))) &&
 	TwItem4Menu(Clip_Menu, Window, FALSE, 6, " Clip ") &&
 	TwRow4Menu(Window, (udat)0, TW_ROW_INACTIVE,16, " Undo           ") &&
 	TwRow4Menu(Window, (udat)0, TW_ROW_INACTIVE,16, " Redo           ") &&
-	TwRow4Menu(Window, (udat)0, TW_ROW_IGNORE,  16, "컴컴컴컴컴컴컴컴") &&
+	TwRow4Menu(Window, (udat)0, TW_ROW_IGNORE,  16, "\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4") &&
 	TwRow4Menu(Window, (udat)0, TW_ROW_ACTIVE,  16, " Cut            ") &&
 	TwRow4Menu(Window, (udat)0, TW_ROW_ACTIVE,  16, " Copy           ") &&
 	TwRow4Menu(Window, (udat)0, TW_ROW_ACTIVE,  16, " Paste          ") &&
 	TwRow4Menu(Window, (udat)0, TW_ROW_ACTIVE,  16, " Clear          ") &&
-	TwRow4Menu(Window, (udat)0, TW_ROW_IGNORE,  16, "컴컴컴컴컴컴컴컴") &&
+	TwRow4Menu(Window, (udat)0, TW_ROW_IGNORE,  16, "\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4") &&
 	TwRow4Menu(Window, (udat)0, TW_ROW_INACTIVE,16, " Show Clipboard ") &&
 	(Window=TwWin4Menu(Clip_Menu)) &&
 	TwItem4Menu(Clip_Menu, Window, TRUE, 8, " Search ") &&
@@ -65,14 +65,12 @@ static byte InitClip(void) {
 
 int main(int argc, char *argv[]) {
     tmsg Msg;
-    udat Code;
     uldat err, WinN = 1;
     
     if (InitClip()) while ((Msg=TwReadMsg(TRUE))) {
 	if (Msg->Type==TW_MSG_WIDGET_KEY) {
 	    
 	    tevent_keyboard EventK = &Msg->Event.EventKeyboard;
-	    Code=EventK->Code;
 	    (void)TwWriteAsciiWindow(EventK->W, EventK->SeqLen, EventK->AsciiSeq);
 	    
 	} else if (Msg->Type==TW_MSG_SELECTION) {

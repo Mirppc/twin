@@ -8,17 +8,22 @@
  */
 
 #include <stdio.h>
-#include <string.h>
-#include <sys/stat.h>
-
-#include <Tw/Twautoconf.h>
-
-#ifdef TW_HAVE_SYS_UTSNAME_H
-# include <sys/utsname.h>
-#endif
 
 #include <Tw/Tw.h>
 #include <Tw/Twerrno.h>
+
+#ifdef TW_HAVE_STRING_H
+# include <string.h>
+#endif
+#ifdef TW_HAVE_SYS_UTSNAME_H
+# include <sys/utsname.h>
+#endif
+#ifdef TW_HAVE_SYS_STAT_H
+# include <sys/stat.h>
+#endif
+#ifdef TW_HAVE_FCNTL_H
+# include <fcntl.h>
+#endif
 
 tmsgport SysMon_MsgPort;
 tmenu SysMon_Menu;
@@ -99,10 +104,10 @@ uldat HBar(hwcol Col, uldat len, uldat scale, uldat frac) {
 	len += frac;
 	
 	if (frac * 4 >= scale && len >= scale)
-	    TwWriteMem(s++, 'Þ', 1), len -= scale;
+	    TwWriteMem(s++, '\xDE', 1), len -= scale;
 	else
 	    frac = 0;
-	TwWriteMem(s, 'Û', len/scale/2);
+	TwWriteMem(s, '\xDB', len/scale/2);
 	
 	TwWriteAsciiWindow(SysMon_Win, len/scale/2 + !!frac, buf);
 	

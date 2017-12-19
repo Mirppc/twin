@@ -26,17 +26,14 @@
 #include "hw_multi.h"
 #include "common.h"
 #include <Tw/Twkeys.h>	/* for TW_* key defines */
-
-#ifdef CONF__UNICODE
-# include <Tutf/Tutf.h>
-#endif
+#include <Tutf/Tutf.h>  /* for UCS-2 to charset conversions */
 
 #include "rctypes.h"
 #include "rcrun.h"
 
 static void DetailCtx(wm_ctx *C);
 
-byte ClickWindowPos = MAXBYTE;
+byte ClickWindowPos = TW_MAXBYTE;
 
 static msgport WM_MsgPort;
 static msgport MapQueue;
@@ -80,10 +77,7 @@ INLINE sbyte IsTabPosition(window Window, udat pos, sbyte isX) {
     return pos >= (start = TabStart(Window, isX)) ? pos - start < TabLen(Window, isX) ? 0 : 1 : -1;
 }
 
-#ifdef THIS_MODULE
-static
-#endif
-byte WMFindBorderWindow(window W, dat u, dat v, byte Border, hwattr *PtrAttr) {
+static byte WMFindBorderWindow(window W, dat u, dat v, byte Border, hwattr *PtrAttr) {
     hwfont *BorderFont, Font;
     ldat k;
     uldat Attrib;
@@ -170,11 +164,7 @@ byte WMFindBorderWindow(window W, dat u, dat v, byte Border, hwattr *PtrAttr) {
 	    k = 2*(ldat)u - ( (ldat)XWidth-(ldat)W->NameLen-(ldat)3 );
 	    if (k > 0) k /= 2;
 	    if (k > 0 && k <= W->NameLen) {
-#ifdef CONF__UNICODE
 		Font = Tutf_CP437_to_UTF_16[W->Name[--k]];
-#else
-		Font = W->Name[--k];
-#endif
 		Found = POS_TITLE;
 	    } else if (k == 0 || k == W->NameLen + 1) {
 		Font = ' ';
@@ -243,11 +233,7 @@ byte WMFindBorderWindow(window W, dat u, dat v, byte Border, hwattr *PtrAttr) {
 	    k = 2*(ldat)u - ( (ldat)XWidth-(ldat)W->NameLen-(ldat)3);
 	    if (k > 0) k /= 2;
 	    if (k > 0 && k <= W->NameLen) {
-#ifdef CONF__UNICODE
 		Font = Tutf_CP437_to_UTF_16[W->Name[--k]];
-#else
-		Font = W->Name[--k];
-#endif
 		Found = POS_TITLE;
 	    } else if (k == 0 || k == W->NameLen + 1) {
 		Font = ' ';
@@ -325,12 +311,8 @@ byte WMFindBorderWindow(window W, dat u, dat v, byte Border, hwattr *PtrAttr) {
 	FlPressed = TRUE;
     }
     
-#ifdef CONF__UNICODE
     extra_u = EncodeToHWAttrExtra(Found, extra_u, !Border, FlPressed);
     *PtrAttr = HWATTR_EXTRA32(HWATTR(Color,Font), extra_u);
-#else
-    *PtrAttr = HWATTR(Color,Font);
-#endif
 
     return Found;
 }
@@ -386,13 +368,13 @@ void MaximizeWindow(window W, byte full_screen) {
 	(Screen = (screen)W->Parent) && IS_SCREEN(Screen)) {
 	    
 	if (full_screen) {
-	    if (Screen->YLogic == MINDAT) Screen->YLogic++;
+	    if (Screen->YLogic == TW_MINDAT) Screen->YLogic++;
 	    W->Left   = Screen->XLogic - 1;
 	    W->Up     = Screen->YLogic;
 	    W->XWidth = All->DisplayWidth + 2;
 	    W->YWidth = All->DisplayHeight + 1 - Screen->YLimit;
 	} else {
-	    if (Screen->YLogic == MAXDAT) Screen->YLogic--;
+	    if (Screen->YLogic == TW_MAXDAT) Screen->YLogic--;
 	    W->Left = Screen->XLogic;
 	    W->Up   = Screen->YLogic + 1;
 	    W->XWidth = All->DisplayWidth;
@@ -413,7 +395,7 @@ void ShowWinList(wm_ctx *C) {
 	WinList->Up = C->j - C->Screen->YLimit;
     } else {
 	WinList->Left=0;
-	WinList->Up=MAXDAT;
+	WinList->Up=TW_MAXDAT;
     }
     Act(Map,WinList)(WinList, (widget)C->Screen);
 }
@@ -449,8 +431,8 @@ static void CleanupLastW(widget LastW, udat LastKeys, byte LastInside) {
 		Event->EventMouse.W = LastW;
 		Event->EventMouse.ShiftFlags = (udat)0;
 		Event->EventMouse.Code = MOVE_MOUSE | (LastKeys & HOLD_ANY);
-		Event->EventMouse.X = MINDAT;
-		Event->EventMouse.Y = MINDAT;
+		Event->EventMouse.X = TW_MINDAT;
+		Event->EventMouse.Y = TW_MINDAT;
 		SendMsg(LastW->Owner, NewMsg);
 	    }
 	}
@@ -463,8 +445,8 @@ static void CleanupLastW(widget LastW, udat LastKeys, byte LastInside) {
 		i = HOLD_N(LastKeys & HOLD_ANY);
 		
 		Event->EventMouse.Code = RELEASE_N(i) | (LastKeys &= ~HOLD_CODE(i));
-		Event->EventMouse.X = MINDAT;
-		Event->EventMouse.Y = MINDAT;
+		Event->EventMouse.X = TW_MINDAT;
+		Event->EventMouse.Y = TW_MINDAT;
 		SendMsg(LastW->Owner, NewMsg);
 	    } else
 		LastKeys = 0;
@@ -635,7 +617,7 @@ static byte CheckForwardMsg(wm_ctx *C, msg Msg, byte WasUsed) {
 	    : (Inside || LastKeys) && (W->Attrib & WIDGET_WANT_MOUSE)) {
 
 	    if (Code == MOVE_MOUSE && !Inside)
-		X = Y = MINDAT;
+		X = Y = TW_MINDAT;
 	    
 	    Msg->Type=MSG_WIDGET_MOUSE;
 	    Event->EventMouse.W = (widget)W;
@@ -770,7 +752,7 @@ static byte ActivateScreen(wm_ctx *C) {
 	Act(Focus,C->Screen)(C->Screen);
     C->Screen = All->FirstScreen;
     All->State = STATE_SCREEN | (C->ByMouse ? STATE_FL_BYMOUSE : 0);
-    Act(DrawMenu,C->Screen)(C->Screen, 0, MAXDAT);
+    Act(DrawMenu,C->Screen)(C->Screen, 0, TW_MAXDAT);
     return TRUE;
 }
 
@@ -781,7 +763,7 @@ static void ContinueScreen(wm_ctx *C) {
 
 static void ReleaseScreen(wm_ctx *C) {
     All->State = STATE_DEFAULT;
-    Act(DrawMenu,All->FirstScreen)(All->FirstScreen, 0, MAXDAT);
+    Act(DrawMenu,All->FirstScreen)(All->FirstScreen, 0, TW_MAXDAT);
 }
 
 /* this is mouse-only */
@@ -821,7 +803,7 @@ static void ReleaseScreenButton(wm_ctx *C) {
 	MoveLast(Screen, All, C->Screen);
 	DrawArea2(NULL, NULL, NULL,
 		 0, Min2(C->Screen->YLimit, All->FirstScreen->YLimit),
-		 MAXDAT, MAXDAT, FALSE);
+		 TW_MAXDAT, TW_MAXDAT, FALSE);
 	UpdateCursor();
     } else
 	Act(DrawMenu,C->Screen)(C->Screen, All->DisplayWidth-(dat)2, All->DisplayWidth-(dat)1);
@@ -889,7 +871,7 @@ static void ReleaseMenu(wm_ctx *C) {
     udat Code;
     
     
-    if (FW && IS_WINDOW(FW) && FW->CurY < MAXLDAT && (Menu = FW->Menu) &&
+    if (FW && IS_WINDOW(FW) && FW->CurY < TW_MAXLDAT && (Menu = FW->Menu) &&
 	(Item = Act(GetSelectedItem,Menu)(Menu)) && (Item->Flags & ROW_ACTIVE) &&
 	(Row = Act(FindRow,FW)(FW, FW->CurY)) &&
 	(Row->Flags & ROW_ACTIVE) && Row->Code)
@@ -1205,7 +1187,7 @@ static void ContinueGadget(wm_ctx *C) {
 	
 	    if (temp != FG->Flags) {
 		if ((widget)FW == All->FirstScreen->FirstW)
-		    DrawWidget((widget)FG, 0, 0, MAXDAT, MAXDAT, FALSE);
+		    DrawWidget((widget)FG, 0, 0, TW_MAXDAT, TW_MAXDAT, FALSE);
 		else
 		    DrawAreaWidget((widget)FG);
 	    }
@@ -1754,7 +1736,7 @@ static void WManagerH(msgport MsgPort) {
 	if ((All->State & STATE_ANY) == STATE_DEFAULT &&
 	    (!C->ByMouse || !isPRESS(C->Code) || !(C->Code & HOLD_ANY))) {
 	    
-	    ClickWindowPos = MAXBYTE;
+	    ClickWindowPos = TW_MAXBYTE;
 	    All->FirstScreen->ClickWindow = NULL;
 	}
 
@@ -1858,7 +1840,7 @@ static void SmartPlace(widget W, screen Screen) {
     if (!W || W->Parent)
 	return;
 
-    if (W->Up == MAXDAT) {
+    if (W->Up == TW_MAXDAT) {
 	X[1] = (X[0] = Screen->XLogic) + All->DisplayWidth - 1;
 	Y[1] = (Y[0] = Screen->YLogic + 1) + All->DisplayHeight - Screen->YLimit - 2;
     
@@ -1872,9 +1854,9 @@ static void SmartPlace(widget W, screen Screen) {
 	    if (YWidth <= Y[1] - Y[0])
 		Y[0] += lrand48() / (MAXLRAND48 / (Y[1] - Y[0] + 2 - YWidth));
 	}
-	if (XWidth > X[1] - X[0] + 1 && X[0] > MINDAT)
+	if (XWidth > X[1] - X[0] + 1 && X[0] > TW_MINDAT)
 	    X[0]--;
-	if (YWidth > Y[1] - Y[0] + 1 && Y[0] > MINDAT)
+	if (YWidth > Y[1] - Y[0] + 1 && Y[0] > TW_MINDAT)
 	    Y[0]--;
     
 	W->Left = X[0] - Screen->XLogic;
@@ -1884,7 +1866,6 @@ static void SmartPlace(widget W, screen Screen) {
 }
 
 
-#ifdef THIS_MODULE
 static void OverrideMethods(byte enter) {
     if (enter)
 	OverrideMethod(Window,FindBorder, FakeFindBorderWindow, WMFindBorderWindow);
@@ -1894,9 +1875,6 @@ static void OverrideMethods(byte enter) {
 
 
 byte InitModule(module Module)
-#else
-byte InitWM(void)
-#endif
 {
     byte sent = FALSE;
     
@@ -1913,14 +1891,11 @@ byte InitWM(void)
 		Remove(MapQueue);
 		
 		if (InitRC()) {
-
-#ifdef THIS_MODULE
 		    OverrideMethods(TRUE);
-#endif
 		    return TRUE;
 		} else {
 		    sent = TRUE;
-		    printk("twin: RC: %."STR(SMALLBUFF)"s\n", ErrStr);
+		    printk("twin: RC: %."STR(TW_SMALLBUFF)"s\n", ErrStr);
 		}
 	    }
 	    UnRegisterExt(WM,MsgPort,WM_MsgPort);
@@ -1932,12 +1907,11 @@ byte InitWM(void)
     if (WM_MsgPort)
 	Delete(WM_MsgPort);
     if (!sent) {
-	printk("twin: WM: %."STR(SMALLBUFF)"s\n", ErrStr);
+	printk("twin: WM: %."STR(TW_SMALLBUFF)"s\n", ErrStr);
     }
     return FALSE;
 }
 
-#ifdef THIS_MODULE
 void QuitModule(module Module) {
     QuitRC();
     OverrideMethods(FALSE);
@@ -1945,4 +1919,3 @@ void QuitModule(module Module) {
     Delete(WM_MsgPort);
     Delete(MapQueue);
 }
-#endif /* THIS_MODULE */
